@@ -8,7 +8,7 @@
     "rules": {
       "recommended": true,
       "complexity": {
-        "noExcessiveCognitiveComplexity": "warn"
+        "noExcessiveCognitiveComplexity": "off"
       },
       "suspicious": {
         "noExplicitAny": "error"
