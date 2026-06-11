@@ -2,6 +2,9 @@ import fs from 'node:fs';
 import { type SyncState, SyncStateSchema } from '../schemas/sync-state.js';
 import { getAgentMeterDir, getSyncStatePath } from '../utils/platform.js';
 
+/**
+ * Reads the sync state file, returning an empty state if absent or invalid
+ */
 export function readSyncState(): SyncState {
   const statePath = getSyncStatePath();
 
@@ -19,6 +22,9 @@ export function readSyncState(): SyncState {
   }
 }
 
+/**
+ * Validates and writes sync state to ~/.agentmeter/sync-state.json
+ */
 export function writeSyncState(state: SyncState): void {
   const agentMeterDir = getAgentMeterDir();
   fs.mkdirSync(agentMeterDir, { recursive: true });

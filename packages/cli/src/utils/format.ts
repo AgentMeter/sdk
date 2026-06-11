@@ -1,3 +1,6 @@
+/**
+ * Formats a duration in seconds as a human-readable string
+ */
 export function formatDuration(seconds: number | null): string {
   if (seconds === null) return '—';
   if (seconds < 60) return `${seconds}s`;
@@ -6,21 +9,33 @@ export function formatDuration(seconds: number | null): string {
   return `${m}m ${s.toString().padStart(2, '0')}s`;
 }
 
+/**
+ * Formats a cost in cents as a dollar string
+ */
 export function formatCost(costCents: number): string {
   return `$${(costCents / 100).toFixed(2)}`;
 }
 
+/**
+ * Formats a token count with K/M suffix for large values
+ */
 export function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toString();
 }
 
+/**
+ * Truncates a string to maxLen characters, adding an ellipsis if needed
+ */
 export function truncate(s: string, maxLen: number): string {
   if (s.length <= maxLen) return s;
   return `${s.slice(0, maxLen - 1)}…`;
 }
 
+/**
+ * Formats an ISO date string as a relative time phrase (e.g. "3 minutes ago")
+ */
 export function formatRelativeTime(isoDate: string): string {
   const ms = Date.now() - new Date(isoDate).getTime();
   const seconds = Math.floor(ms / 1000);

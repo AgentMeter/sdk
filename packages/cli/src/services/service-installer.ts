@@ -7,16 +7,25 @@ import { getLogDir, getLogPath } from '../utils/platform.js';
 const LAUNCHD_LABEL = 'com.agentmeter.sync';
 const SYSTEMD_SERVICE = 'agentmeter';
 
+/**
+ * Returns the macOS LaunchAgent plist file path for this service
+ */
 function getLaunchdPlistPath(): string {
   const home = process.env.HOME ?? '';
   return path.join(home, 'Library', 'LaunchAgents', `${LAUNCHD_LABEL}.plist`);
 }
 
+/**
+ * Returns the Linux systemd user service file path for this service
+ */
 function getSystemdServicePath(): string {
   const home = process.env.HOME ?? '';
   return path.join(home, '.config', 'systemd', 'user', `${SYSTEMD_SERVICE}.service`);
 }
 
+/**
+ * Resolves the installed agentmeter binary path, falling back to argv[1]
+ */
 function findBinaryPath(): string {
   try {
     const result = execFileSync('which', ['agentmeter'], { encoding: 'utf8' }).trim();
@@ -27,6 +36,9 @@ function findBinaryPath(): string {
   return process.argv[1] ?? 'agentmeter';
 }
 
+/**
+ * Escapes special XML characters in a string for safe plist embedding
+ */
 function escapeXml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
@@ -36,6 +48,9 @@ function escapeXml(str: string): string {
     .replace(/'/g, '&apos;');
 }
 
+/**
+ * Generates the launchd plist XML content for the agentmeter sync service
+ */
 function generatePlist(binaryPath: string, apiKey: string, logPath: string): string {
   const nodePath = process.execPath;
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -68,6 +83,9 @@ function generatePlist(binaryPath: string, apiKey: string, logPath: string): str
 `;
 }
 
+/**
+ * Generates the systemd unit file content for the agentmeter sync service
+ */
 function generateSystemdUnit(binaryPath: string, apiKey: string): string {
   const nodePath = process.execPath;
   return `[Unit]
@@ -85,6 +103,9 @@ WantedBy=default.target
 `;
 }
 
+/**
+ * Installs and starts the agentmeter launchd service on macOS
+ */
 export function installMacos(config: Config): void {
   const binaryPath = findBinaryPath();
   const logDir = getLogDir();
@@ -102,6 +123,9 @@ export function installMacos(config: Config): void {
   spawnSync('launchctl', ['load', plistPath]);
 }
 
+/**
+ * Unloads and removes the agentmeter launchd service on macOS
+ */
 export function uninstallMacos(): void {
   const plistPath = getLaunchdPlistPath();
   spawnSync('launchctl', ['unload', plistPath]);
@@ -110,6 +134,9 @@ export function uninstallMacos(): void {
   }
 }
 
+/**
+ * Installs and starts the agentmeter systemd user service on Linux
+ */
 export function installLinux(config: Config): void {
   const binaryPath = findBinaryPath();
   const servicePath = getSystemdServicePath();
@@ -124,6 +151,9 @@ export function installLinux(config: Config): void {
   spawnSync('systemctl', ['--user', 'start', SYSTEMD_SERVICE]);
 }
 
+/**
+ * Stops and removes the agentmeter systemd user service on Linux
+ */
 export function uninstallLinux(): void {
   const servicePath = getSystemdServicePath();
   spawnSync('systemctl', ['--user', 'stop', SYSTEMD_SERVICE]);
@@ -134,6 +164,9 @@ export function uninstallLinux(): void {
   spawnSync('systemctl', ['--user', 'daemon-reload']);
 }
 
+/**
+ * Returns true if the agentmeter background service is currently active
+ */
 export function isServiceRunning(): boolean {
   if (process.platform === 'darwin') {
     const result = spawnSync('launchctl', ['list', LAUNCHD_LABEL], { encoding: 'utf8' });
@@ -148,6 +181,9 @@ export function isServiceRunning(): boolean {
   return false;
 }
 
+/**
+ * Returns true if the agentmeter service unit/plist file exists on disk
+ */
 export function isServiceInstalled(): boolean {
   if (process.platform === 'darwin') {
     return fs.existsSync(getLaunchdPlistPath());

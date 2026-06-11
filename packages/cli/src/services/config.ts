@@ -3,6 +3,9 @@ import os from 'node:os';
 import { type Config, ConfigSchema } from '../schemas/config.js';
 import { getAgentMeterDir, getConfigPath } from '../utils/platform.js';
 
+/**
+ * Reads and validates the config file, returning null if absent or invalid
+ */
 export function readConfig(): Config | null {
   const configPath = getConfigPath();
 
@@ -20,6 +23,9 @@ export function readConfig(): Config | null {
   }
 }
 
+/**
+ * Validates and writes config to ~/.agentmeter/config.json
+ */
 export function writeConfig(config: Config): void {
   const agentMeterDir = getAgentMeterDir();
   fs.mkdirSync(agentMeterDir, { recursive: true });
@@ -28,6 +34,10 @@ export function writeConfig(config: Config): void {
   fs.writeFileSync(getConfigPath(), `${JSON.stringify(validated, null, 2)}\n`, 'utf8');
 }
 
+/**
+ * Returns the active config, merging env vars over file values.
+ * Returns null if no API key is available from either source.
+ */
 export function getEffectiveConfig(): Config | null {
   const envApiKey = process.env.AGENTMETER_API_KEY;
   const envApiUrl = process.env.AGENTMETER_API_URL;

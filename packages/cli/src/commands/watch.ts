@@ -5,6 +5,9 @@ import { runSync } from './sync.js';
 
 const DEFAULT_INTERVAL_SECONDS = 300;
 
+/**
+ * Formats a seconds interval as a short human-readable string for display
+ */
 function formatNextSync(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   return `${Math.round(seconds / 60)}m`;

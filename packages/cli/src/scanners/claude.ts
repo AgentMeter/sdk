@@ -42,6 +42,9 @@ const JournalEntrySchema = z
 
 type JournalEntry = z.infer<typeof JournalEntrySchema>;
 
+/**
+ * Reads a JSONL file and returns parsed entries, skipping invalid lines
+ */
 function parseJsonlFile(filePath: string): JournalEntry[] {
   let content: string;
   try {
@@ -69,6 +72,10 @@ function parseJsonlFile(filePath: string): JournalEntry[] {
   return entries;
 }
 
+/**
+ * Finds the first meaningful user message to use as the session title.
+ * Skips entries whose content begins with an XML-style tag (e.g. <ide_opened_file>).
+ */
 function extractTitle(entries: JournalEntry[]): string | null {
   for (const entry of entries) {
     if (entry.type !== 'user' || !entry.message) continue;
@@ -87,10 +94,12 @@ function extractTitle(entries: JournalEntry[]): string | null {
   return null;
 }
 
+/**
+ * Attempts to decode a Claude Code project directory name back to an absolute path.
+ * Claude Code encodes paths by replacing '/' with '-', which is ambiguous for paths
+ * that contain dashes — the decoded path is only returned if it exists on disk.
+ */
 function tryDecodeProjectPath(dirName: string): string {
-  // Claude Code encodes the absolute project path by replacing '/' with '-'.
-  // Example: '/Users/adam/Projects/myapp' → '-Users-adam-Projects-myapp'
-  // This decode is a best-effort heuristic — unreliable for paths with dashes.
   const decoded = `/${dirName.replace(/^-/, '').replace(/-/g, '/')}`;
   try {
     if (fs.statSync(decoded).isDirectory()) return decoded;
@@ -100,6 +109,9 @@ function tryDecodeProjectPath(dirName: string): string {
   return dirName;
 }
 
+/**
+ * Recursively finds all .jsonl files under a directory, skipping the memory dir
+ */
 function findJsonlFiles(dir: string): string[] {
   let dirEntries: fs.Dirent[];
   try {
@@ -121,6 +133,9 @@ function findJsonlFiles(dir: string): string[] {
   return results;
 }
 
+/**
+ * Returns the model identifier from the first assistant entry that declares one
+ */
 function extractModel(entries: JournalEntry[]): string | null {
   for (const entry of entries) {
     if (entry.type === 'assistant' && entry.message?.model) return entry.message.model;
@@ -128,6 +143,9 @@ function extractModel(entries: JournalEntry[]): string | null {
   return null;
 }
 
+/**
+ * Sums token counts across all assistant entries in the session
+ */
 function aggregateTokens(entries: JournalEntry[]): LocalSession['tokens'] {
   let input = 0;
   let output = 0;
@@ -145,6 +163,9 @@ function aggregateTokens(entries: JournalEntry[]): LocalSession['tokens'] {
   return { input, output, cacheRead, cacheWrite };
 }
 
+/**
+ * Derives start time, end time, and duration from entry timestamps
+ */
 function extractTiming(entries: JournalEntry[]): {
   startTime: string;
   endTime: string | null;
@@ -168,6 +189,9 @@ function extractTiming(entries: JournalEntry[]): {
   return { startTime, endTime, durationSeconds };
 }
 
+/**
+ * Determines session status from the last assistant stop_reason
+ */
 function extractStatus(entries: JournalEntry[]): LocalSession['status'] {
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i];
@@ -178,6 +202,9 @@ function extractStatus(entries: JournalEntry[]): LocalSession['status'] {
   return 'success';
 }
 
+/**
+ * Constructs a LocalSession from a parsed JSONL entry list
+ */
 function buildSession(
   sessionId: string,
   projectDirName: string,
@@ -201,9 +228,15 @@ function buildSession(
   };
 }
 
+/**
+ * Scanner for Claude Code sessions stored in ~/.claude/projects
+ */
 export class ClaudeScanner implements SessionScanner {
   readonly name = 'claude';
 
+  /**
+   * Returns true if the ~/.claude/projects directory exists
+   */
   async isAvailable(): Promise<boolean> {
     try {
       return fs.statSync(getClaudeProjectsDir()).isDirectory();
@@ -212,6 +245,10 @@ export class ClaudeScanner implements SessionScanner {
     }
   }
 
+  /**
+   * Scans all Claude Code project directories and returns filtered sessions.
+   * Sessions with no tokens or duration under 30s are dropped as noise.
+   */
   async scan(): Promise<LocalSession[]> {
     const projectsDir = getClaudeProjectsDir();
     const sessions: LocalSession[] = [];

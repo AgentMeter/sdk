@@ -7,10 +7,16 @@ const MAX_LOG_SIZE = 10 * 1024 * 1024;
 
 let isForeground = true;
 
+/**
+ * Controls whether log output is written to stdout/stderr in addition to the log file
+ */
 export function setForegroundMode(value: boolean): void {
   isForeground = value;
 }
 
+/**
+ * Creates the log directory if it does not already exist
+ */
 function ensureLogDir(): void {
   const logDir = getLogDir();
   if (!fs.existsSync(logDir)) {
@@ -18,6 +24,9 @@ function ensureLogDir(): void {
   }
 }
 
+/**
+ * Rotates the log file to .log.1 when it exceeds MAX_LOG_SIZE
+ */
 function rotateLogs(): void {
   const logPath = getLogPath();
   try {
@@ -30,6 +39,9 @@ function rotateLogs(): void {
   }
 }
 
+/**
+ * Appends a message to the log file, rotating if needed
+ */
 function writeToFile(message: string): void {
   try {
     ensureLogDir();
@@ -40,6 +52,9 @@ function writeToFile(message: string): void {
   }
 }
 
+/**
+ * Writes a timestamped log entry to file and optionally to stdout/stderr
+ */
 function log(level: LogLevel, message: string): void {
   const timestamp = new Date().toISOString();
   const entry = `${timestamp} [${level.toUpperCase()}] ${message}`;

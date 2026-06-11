@@ -9,6 +9,9 @@ import { readSyncState } from '../services/sync-state.js';
 import { formatRelativeTime } from '../utils/format.js';
 import { getConfigPath, getLogPath } from '../utils/platform.js';
 
+/**
+ * Prints a padded label/value row for the status display
+ */
 function row(label: string, value: string): void {
   const pad = 12;
   const paddedLabel = `${label}:`.padEnd(pad);

@@ -10,6 +10,9 @@ const DEFAULT_OPTIONS: RetryOptions = {
   maxDelayMs: 30_000,
 };
 
+/**
+ * Retries an async function with exponential backoff on failure
+ */
 export async function withRetry<T>(
   fn: () => Promise<T>,
   options: Partial<RetryOptions> = {},

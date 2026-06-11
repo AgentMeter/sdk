@@ -18,9 +18,16 @@ export interface ValidateKeyResult {
   keyType: 'personal' | 'org' | null;
 }
 
+/**
+ * HTTP client for the AgentMeter API
+ */
 export class ApiClient {
   constructor(private readonly config: Config) {}
 
+  /**
+   * Validates the configured API key against GET /api/auth/me.
+   * Returns { valid: false } on any network or auth failure.
+   */
   async validateKey(): Promise<ValidateKeyResult> {
     let response: Response;
     try {
@@ -58,6 +65,10 @@ export class ApiClient {
     };
   }
 
+  /**
+   * Submits a local session to POST /api/ingest/local with retry on 429.
+   * Throws on 401 (invalid key). Returns a SubmitResult for all other outcomes.
+   */
   async submitSession(session: LocalSession): Promise<SubmitResult> {
     const t = session.tokens;
     const body = {

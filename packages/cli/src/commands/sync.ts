@@ -31,6 +31,9 @@ interface SessionClassification {
   skipped: LocalSession[];
 }
 
+/**
+ * Scans all available engines for sessions, optionally filtered by date
+ */
 async function gatherSessions(opts: SyncOptions): Promise<LocalSession[]> {
   const allScanners = [new ClaudeScanner(), new CursorScanner()];
   const allSessions: LocalSession[] = [];
@@ -52,6 +55,9 @@ async function gatherSessions(opts: SyncOptions): Promise<LocalSession[]> {
   return allSessions.filter((s) => new Date(s.startTime) >= sinceDate);
 }
 
+/**
+ * Splits sessions into those needing submission and those already up-to-date
+ */
 function classifySessions(sessions: LocalSession[], syncState: SyncState): SessionClassification {
   const toSync: Array<{ session: LocalSession; isNew: boolean }> = [];
   const skipped: LocalSession[] = [];
@@ -70,6 +76,9 @@ function classifySessions(sessions: LocalSession[], syncState: SyncState): Sessi
   return { toSync, skipped };
 }
 
+/**
+ * Prints a dry-run summary listing what would be submitted without sending anything
+ */
 function printDryRun(toSync: Array<{ session: LocalSession; isNew: boolean }>): void {
   for (const { session, isNew } of toSync) {
     const action = isNew ? 'Would submit' : 'Would update';
@@ -83,6 +92,9 @@ function printDryRun(toSync: Array<{ session: LocalSession; isNew: boolean }>): 
   console.log(pc.dim(`[dry-run] ${toSync.length} sessions would be synced. No data was sent.`));
 }
 
+/**
+ * Prints a single verbose row for a submitted session
+ */
 function printVerboseRow(session: LocalSession, result: SubmitResult, isNew: boolean): void {
   const label = isNew ? pc.green('[new]') : pc.yellow('[updated]');
   const cost = result.costCents ? formatCost(result.costCents) : '—';
@@ -91,6 +103,9 @@ function printVerboseRow(session: LocalSession, result: SubmitResult, isNew: boo
   );
 }
 
+/**
+ * Submits all pending sessions to the API and updates sync state in place
+ */
 async function submitAll(
   toSync: Array<{ session: LocalSession; isNew: boolean }>,
   api: ApiClient,
@@ -139,6 +154,9 @@ async function submitAll(
   return { newCount, updatedCount, errorCount, totalCostCents };
 }
 
+/**
+ * Prints the final sync summary line with counts and total cost
+ */
 function printSummary(
   newCount: number,
   updatedCount: number,
@@ -167,6 +185,9 @@ function printSummary(
   if (skipped.length > 0) console.log(`  Skipped: ${skipped.length} (already synced)`);
 }
 
+/**
+ * Runs a full scan-and-submit sync cycle, respecting dry-run and filter options
+ */
 export async function runSync(options: Partial<SyncOptions> = {}): Promise<SyncResult> {
   const opts: SyncOptions = { verbose: false, dryRun: false, ...options };
 
