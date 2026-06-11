@@ -73,8 +73,16 @@ function parseJsonlFile(filePath: string): JournalEntry[] {
 }
 
 /**
+ * Strips leading markdown heading syntax and whitespace from a string
+ */
+function stripMarkdownHeading(text: string): string {
+  return text.replace(/^#+\s*/, '').trim();
+}
+
+/**
  * Finds the first meaningful user message to use as the session title.
  * Skips entries whose content begins with an XML-style tag (e.g. <ide_opened_file>).
+ * Strips leading markdown heading syntax (e.g. # My Title → My Title).
  */
 function extractTitle(entries: JournalEntry[]): string | null {
   for (const entry of entries) {
@@ -82,12 +90,14 @@ function extractTitle(entries: JournalEntry[]): string | null {
     const content = entry.message.content;
     if (typeof content === 'string') {
       const trimmed = content.trim();
-      if (trimmed && !trimmed.startsWith('<')) return trimmed.slice(0, 120);
+      if (trimmed && !trimmed.startsWith('<'))
+        return stripMarkdownHeading(trimmed).slice(0, 120);
     }
     if (Array.isArray(content)) {
       for (const block of content) {
         const text = block.text?.trim();
-        if (block.type === 'text' && text && !text.startsWith('<')) return text.slice(0, 120);
+        if (block.type === 'text' && text && !text.startsWith('<'))
+          return stripMarkdownHeading(text).slice(0, 120);
       }
     }
   }
