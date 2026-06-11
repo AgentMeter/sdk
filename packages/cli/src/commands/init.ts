@@ -34,7 +34,11 @@ export const initCommand = new Command('init')
       // Validate the API key
       process.stdout.write('\nValidating API key...');
 
-      const tempConfig = { apiKey, deviceName, apiUrl: 'https://agentmeter.app' };
+      const tempConfig = {
+        apiKey,
+        deviceName,
+        apiUrl: process.env.AGENTMETER_API_URL ?? 'https://agentmeter.app',
+      };
       const client = new ApiClient(tempConfig);
       const validation = await client.validateKey();
 
@@ -74,7 +78,7 @@ export const initCommand = new Command('init')
       if (validation.userName) console.log(`  User: ${validation.userName}`);
       console.log(`  Key:  ${maskKey(apiKey)}\n`);
 
-      writeConfig({ apiKey, deviceName, apiUrl: 'https://agentmeter.app' });
+      writeConfig({ apiKey, deviceName, apiUrl: tempConfig.apiUrl });
 
       console.log(`Config saved to ${pc.dim('~/.agentmeter/config.json')}`);
       console.log(

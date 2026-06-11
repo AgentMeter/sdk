@@ -59,6 +59,7 @@ export class ApiClient {
   }
 
   async submitSession(session: LocalSession): Promise<SubmitResult> {
+    const t = session.tokens;
     const body = {
       sessionId: session.sessionId,
       projectPath: session.projectPath,
@@ -67,10 +68,18 @@ export class ApiClient {
       model: session.model,
       status: session.status,
       title: session.title,
-      startTime: session.startTime,
-      endTime: session.endTime,
+      startedAt: session.startTime,
+      completedAt: session.endTime ?? null,
       durationSeconds: session.durationSeconds,
-      tokens: session.tokens,
+      tokens: t
+        ? {
+            inputTokens: t.input,
+            outputTokens: t.output,
+            cacheReadTokens: t.cacheRead,
+            cacheWriteTokens: t.cacheWrite,
+            isApproximate: false,
+          }
+        : null,
     };
 
     const makeRequest = async (): Promise<Response> => {
@@ -108,7 +117,7 @@ export class ApiClient {
       return { sessionId: session.sessionId, costCents: null, status: 'duplicate' };
     }
 
-    if (response.status === 400) {
+    if (response.status === 400 || response.status === 422) {
       let errorMsg = 'Validation error';
       try {
         const data: unknown = await response.json();

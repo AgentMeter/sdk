@@ -12,10 +12,12 @@
     "test": "turbo run test",
     "test:watch": "turbo run test:watch",
     "prepare": "npx simple-git-hooks",
-    "precommit": "pnpm biome check --write . && pnpm typecheck && pnpm test"
+    "precommit": "pnpm biome check --write . && pnpm typecheck && pnpm test",
+    "cli": "tsx packages/cli/src/index.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
+    "tsx": "^4.19.2",
     "simple-git-hooks": "^2.11.1",
     "turbo": "^2.3.3",
     "typescript": "^5.7.2"

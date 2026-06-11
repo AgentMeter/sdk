@@ -73,10 +73,14 @@ function extractTitle(entries: JournalEntry[]): string | null {
   for (const entry of entries) {
     if (entry.type !== 'user' || !entry.message) continue;
     const content = entry.message.content;
-    if (typeof content === 'string' && content.trim()) return content.slice(0, 120);
+    if (typeof content === 'string') {
+      const trimmed = content.trim();
+      if (trimmed && !trimmed.startsWith('<')) return trimmed.slice(0, 120);
+    }
     if (Array.isArray(content)) {
       for (const block of content) {
-        if (block.type === 'text' && block.text?.trim()) return block.text.slice(0, 120);
+        const text = block.text?.trim();
+        if (block.type === 'text' && text && !text.startsWith('<')) return text.slice(0, 120);
       }
     }
   }
@@ -231,7 +235,12 @@ export class ClaudeScanner implements SessionScanner {
         const sessionId = path.basename(jsonlFile, '.jsonl');
         const entries = parseJsonlFile(jsonlFile);
         if (entries.length === 0) continue;
-        sessions.push(buildSession(sessionId, projectDirName, entries));
+        const session = buildSession(sessionId, projectDirName, entries);
+        const tokens = session.tokens;
+        const hasTokens = tokens.input > 0 || tokens.output > 0;
+        const tooShort = session.durationSeconds !== null && session.durationSeconds < 30;
+        if (!hasTokens || tooShort) continue;
+        sessions.push(session);
       }
     }
 
