@@ -90,8 +90,7 @@ function extractTitle(entries: JournalEntry[]): string | null {
     const content = entry.message.content;
     if (typeof content === 'string') {
       const trimmed = content.trim();
-      if (trimmed && !trimmed.startsWith('<'))
-        return stripMarkdownHeading(trimmed).slice(0, 120);
+      if (trimmed && !trimmed.startsWith('<')) return stripMarkdownHeading(trimmed).slice(0, 120);
     }
     if (Array.isArray(content)) {
       for (const block of content) {
@@ -220,8 +219,8 @@ function buildSession(
   projectDirName: string,
   entries: JournalEntry[],
 ): LocalSession {
-  const firstEntry = entries[0];
-  const projectPath = firstEntry?.cwd ?? tryDecodeProjectPath(projectDirName);
+  const cwd = entries.find((e) => e.cwd)?.cwd;
+  const projectPath = cwd ?? tryDecodeProjectPath(projectDirName);
   const { startTime, endTime, durationSeconds } = extractTiming(entries);
 
   return {
