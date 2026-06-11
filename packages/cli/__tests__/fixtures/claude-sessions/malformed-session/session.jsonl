@@ -1,0 +1,4 @@
+{"id":"msg1","type":"user","message":{"role":"user","content":[{"type":"text","text":"Do something useful"}]},"sessionId":"malformed-session-id","timestamp":"2026-06-08T15:00:00.000Z","cwd":"/tmp/test-project-2"}
+{not valid json at all
+{"id":"msg2","type":"assistant","message":{"role":"assistant","model":"claude-sonnet-4-5","usage":{"input_tokens":"not-a-number","output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"stop_reason":"end_turn"},"sessionId":"malformed-session-id","timestamp":"2026-06-08T15:00:20.000Z","cwd":"/tmp/test-project-2"}
+{"completely":"unexpected","structure":true}

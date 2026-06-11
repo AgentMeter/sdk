@@ -1,0 +1,10 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "permissions": {
+    "allow": ["Bash(*)", "Read", "Write", "Edit"],
+    "deny": []
+  }
+}
