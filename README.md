@@ -1,56 +1,30 @@
-# @agentmeter/cli
+# AgentMeter Packages
 
-Track local AI coding agent session costs — Claude Code, Cursor, and more.
+[AgentMeter](https://agentmeter.app) tracks AI coding agent usage and costs across your team — giving you visibility into how tools like Claude Code and Cursor are being used, by whom, and at what cost.
 
-## Quick Start
+This is the pnpm monorepo for AgentMeter's open-source packages.
 
-```bash
-# Initialize with your API key
-npx @agentmeter/cli init
+## Packages
 
-# Sync sessions once
-npx @agentmeter/cli sync
+| Package | Description |
+| ------- | ----------- |
+| [`@agentmeter/cli`](packages/cli) | CLI for syncing local AI coding session data to AgentMeter |
 
-# Install as a background service
-npx @agentmeter/cli install
-```
+## Stack
 
-## Commands
+- **Language:** TypeScript (strict mode, ESM)
+- **Package manager:** pnpm workspaces
+- **Monorepo orchestration:** Turborepo
+- **Linting/formatting:** Biome
+- **Testing:** Vitest
+- **Bundling:** tsup
 
-| Command     | Description                             |
-| ----------- | --------------------------------------- |
-| `init`      | Configure API key and device name       |
-| `sync`      | One-time scan and upload                |
-| `watch`     | Background daemon mode                  |
-| `install`   | Install as system service (macOS/Linux) |
-| `uninstall` | Remove system service                   |
-| `status`    | Show service and sync health            |
+## Root Commands
 
-### `sync` flags
-
-| Flag | Description |
+| Command | Description |
 |---|---|
-| `--verbose` | Show each session's status (cost, duration, new/updated/unchanged) |
-| `--dry-run` | Show what would be submitted without sending anything |
-| `--since <date>` | Only sync sessions after this date (ISO 8601) |
-| `--engine <name>` | Only run a specific scanner (e.g. `claude`) |
-
-### `watch` flags
-
-| Flag | Description |
-|---|---|
-| `--interval <seconds>` | Sync interval in seconds (default: 300) |
-
-## Environment Variables
-
-All commands respect these environment variables:
-
-- `AGENTMETER_API_KEY` — overrides the API key in config
-- `AGENTMETER_API_URL` — overrides the API URL (useful for local dev)
-
-## Supported Agents
-
-| Agent       | Status      |
-| ----------- | ----------- |
-| Claude Code | ✓ Supported |
-| Cursor      | Coming soon |
+| `pnpm build` | Build all packages |
+| `pnpm test` | Run all tests |
+| `pnpm typecheck` | TypeScript strict check across all packages |
+| `pnpm lint` | Biome lint check |
+| `pnpm lint:fix` | Biome auto-fix |
