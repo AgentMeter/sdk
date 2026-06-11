@@ -1,5 +1,5 @@
 {
-  "name": "agentmeter-cli-monorepo",
+  "name": "agentmeter-packages",
   "private": true,
   "packageManager": "pnpm@10.33.2",
   "scripts": {
