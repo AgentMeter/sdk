@@ -14,7 +14,7 @@ const mockConfig = {
 
 const mockSession: LocalSession = {
   sessionId: 'sess_abc123',
-  projectPath: '/Users/test/myproject',
+  repoFullName: 'adamhenson/myproject',
   engine: 'claude',
   model: 'claude-sonnet-4-5',
   status: 'success',

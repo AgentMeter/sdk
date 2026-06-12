@@ -73,7 +73,7 @@ export class ApiClient {
     const t = session.tokens;
     const body = {
       sessionId: session.sessionId,
-      projectPath: session.projectPath,
+      repoFullName: session.repoFullName,
       deviceName: this.config.deviceName,
       engine: session.engine,
       model: session.model,

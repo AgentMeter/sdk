@@ -9,7 +9,7 @@ export const TokensSchema = z.object({
 
 export const LocalSessionSchema = z.object({
   sessionId: z.string(),
-  projectPath: z.string(),
+  repoFullName: z.string(),
   engine: z.string(),
   model: z.string().nullable(),
   status: z.enum(['success', 'failure', 'cancelled']),

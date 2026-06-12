@@ -12,6 +12,10 @@ vi.mock('../../src/utils/platform.js', () => ({
   getLogPath: () => '/tmp/agentmeter-test/logs/sync.log',
 }));
 
+vi.mock('../../src/utils/repo.js', () => ({
+  resolveRepoFullName: (dir: string) => path.basename(dir),
+}));
+
 // Silence logger output during tests
 vi.mock('../../src/services/logger.js', () => ({
   logger: {
@@ -41,8 +45,8 @@ describe('ClaudeScanner', () => {
     // The fixture dir "valid-session" contains "session.jsonl" → sessionId = "session"
     expect(sessions.length).toBeGreaterThan(0);
 
-    // Find session from valid-session fixture (has cwd: /tmp/test-project)
-    const validSession = sessions.find((s) => s.projectPath === '/tmp/test-project');
+    // resolveRepoFullName is mocked to return path.basename(cwd), so cwd /tmp/test-project → test-project
+    const validSession = sessions.find((s) => s.repoFullName === 'test-project');
     expect(validSession).toBeDefined();
 
     if (validSession) {
@@ -66,7 +70,7 @@ describe('ClaudeScanner', () => {
     const sessions = await scanner.scan();
     expect(Array.isArray(sessions)).toBe(true);
 
-    const malformed = sessions.find((s) => s.projectPath === '/tmp/test-project-2');
+    const malformed = sessions.find((s) => s.repoFullName === 'test-project-2');
     // The valid lines in the malformed fixture should still be parsed
     expect(malformed).toBeDefined();
     if (malformed) {
@@ -81,7 +85,7 @@ describe('ClaudeScanner', () => {
     const scanner = new ClaudeScanner();
     const sessions = await scanner.scan();
     // The empty-session/session.jsonl file should produce no session
-    const emptySessions = sessions.filter((s) => s.sessionId === 'session' && s.projectPath === '');
+    const emptySessions = sessions.filter((s) => s.repoFullName === 'empty-session');
     expect(emptySessions.length).toBe(0);
   });
 

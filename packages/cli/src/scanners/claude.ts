@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { LocalSession } from '../schemas/session.js';
 import { logger } from '../services/logger.js';
 import { getClaudeProjectsDir } from '../utils/platform.js';
+import { resolveRepoFullName } from '../utils/repo.js';
 import type { SessionScanner } from './types.js';
 
 // Permissive schemas for undocumented JSONL format — .catch() ensures a bad field
@@ -108,7 +109,7 @@ function extractTitle(entries: JournalEntry[]): string | null {
  * Claude Code encodes paths by replacing '/' with '-', which is ambiguous for paths
  * that contain dashes — the decoded path is only returned if it exists on disk.
  */
-function tryDecodeProjectPath(dirName: string): string {
+function tryDecodeProjectDir(dirName: string): string {
   const decoded = `/${dirName.replace(/^-/, '').replace(/-/g, '/')}`;
   try {
     if (fs.statSync(decoded).isDirectory()) return decoded;
@@ -219,13 +220,13 @@ function buildSession(
   projectDirName: string,
   entries: JournalEntry[],
 ): LocalSession {
-  const cwd = entries.find((e) => e.cwd)?.cwd;
-  const projectPath = cwd ?? tryDecodeProjectPath(projectDirName);
+  const cwd = entries.find((e) => e.cwd)?.cwd ?? tryDecodeProjectDir(projectDirName);
+  const repoFullName = resolveRepoFullName(cwd);
   const { startTime, endTime, durationSeconds } = extractTiming(entries);
 
   return {
     sessionId,
-    projectPath,
+    repoFullName,
     engine: 'claude',
     model: extractModel(entries),
     status: extractStatus(entries),
