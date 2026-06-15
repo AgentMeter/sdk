@@ -37,10 +37,12 @@ const JournalEntrySchema = z
     uuid: z.string().optional(),
     timestamp: z.string().optional(),
     cwd: z.string().optional(),
+    aiTitle: z.string().optional(),
     message: MessageSchema.optional(),
   })
   .passthrough();
 
+/** A single line parsed from a Claude Code JSONL session file */
 type JournalEntry = z.infer<typeof JournalEntrySchema>;
 
 /**
@@ -81,11 +83,19 @@ function stripMarkdownHeading(text: string): string {
 }
 
 /**
- * Finds the first meaningful user message to use as the session title.
- * Skips entries whose content begins with an XML-style tag (e.g. <ide_opened_file>).
- * Strips leading markdown heading syntax (e.g. # My Title → My Title).
+ * Extracts the session title, preferring Claude Code's AI-generated title
+ * (from ai-title entries) over the first meaningful user message.
  */
 function extractTitle(entries: JournalEntry[]): string | null {
+  // Prefer the AI-generated title Claude Code writes to the JSONL.
+  // Iterate in reverse — Claude Code rewrites the title as the conversation progresses,
+  // so the last ai-title entry is the most accurate.
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (entry?.type === 'ai-title' && entry.aiTitle) return entry.aiTitle.slice(0, 120);
+  }
+
+  // Fall back to first meaningful user message
   for (const entry of entries) {
     if (entry.type !== 'user' || !entry.message) continue;
     const content = entry.message.content;
@@ -199,10 +209,19 @@ function extractTiming(entries: JournalEntry[]): {
   return { startTime, endTime, durationSeconds };
 }
 
+const RUNNING_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
+
 /**
- * Determines session status from the last assistant stop_reason
+ * Determines session status. Returns 'running' if the last entry timestamp is
+ * within 30 minutes — the session is likely still active. Otherwise uses the
+ * last assistant stop_reason to distinguish success from failure.
  */
 function extractStatus(entries: JournalEntry[]): LocalSession['status'] {
+  const lastTimestamp = [...entries].reverse().find((e) => e.timestamp)?.timestamp;
+  if (lastTimestamp && Date.now() - new Date(lastTimestamp).getTime() < RUNNING_THRESHOLD_MS) {
+    return 'running';
+  }
+
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i];
     if (entry?.type === 'assistant' && entry.message?.stop_reason) {

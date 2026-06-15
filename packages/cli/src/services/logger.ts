@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { getLogDir, getLogPath } from '../utils/platform.js';
 
+/** Severity levels for log entries */
 type LogLevel = 'info' | 'warn' | 'error';
 
 const MAX_LOG_SIZE = 10 * 1024 * 1024;

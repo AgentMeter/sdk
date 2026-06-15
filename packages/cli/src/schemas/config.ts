@@ -6,4 +6,5 @@ export const ConfigSchema = z.object({
   apiUrl: z.string().url().default('https://agentmeter.app'),
 });
 
+/** Validated CLI configuration stored in ~/.agentmeter/config.json */
 export type Config = z.infer<typeof ConfigSchema>;

@@ -4,17 +4,37 @@ import type { LocalSession } from '../schemas/session.js';
 import { withRetry } from '../utils/retry.js';
 import { logger } from './logger.js';
 
+/**
+ * Outcome of submitting a single session to POST /api/ingest/local
+ */
 export interface SubmitResult {
+  /** The session ID that was submitted */
   sessionId: string;
+
+  /** Cost in cents returned by the API, or null if not yet calculated */
   costCents: number | null;
+
+  /** Whether the session was newly created, updated, a duplicate, or failed */
   status: 'created' | 'updated' | 'duplicate' | 'error';
+
+  /** Error message when status is 'error' */
   error?: string;
 }
 
+/**
+ * Outcome of validating an API key against GET /api/auth/me
+ */
 export interface ValidateKeyResult {
+  /** Whether the key was accepted by the API */
   valid: boolean;
+
+  /** Organization name associated with the key, or null */
   orgName: string | null;
+
+  /** User display name associated with the key, or null */
   userName: string | null;
+
+  /** Whether the key is scoped to a personal user or an org, or null if unknown */
   keyType: 'personal' | 'org' | null;
 }
 
@@ -88,7 +108,7 @@ export class ApiClient {
             outputTokens: t.output,
             cacheReadTokens: t.cacheRead,
             cacheWriteTokens: t.cacheWrite,
-            isApproximate: false,
+            isApproximate: t.isApproximate ?? false,
           }
         : null,
     };

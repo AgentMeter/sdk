@@ -1,6 +1,14 @@
+/**
+ * Configuration for exponential-backoff retry behavior
+ */
 export interface RetryOptions {
+  /** Maximum number of attempts before throwing the last error */
   maxAttempts: number;
+
+  /** Initial delay in milliseconds before the first retry */
   baseDelayMs: number;
+
+  /** Upper bound on the computed delay between retries */
   maxDelayMs: number;
 }
 

@@ -6,6 +6,9 @@ import pc from 'picocolors';
 import { ApiClient } from '../services/api.js';
 import { writeConfig } from '../services/config.js';
 
+/**
+ * Returns a truncated preview of an API key safe for display in terminal output
+ */
 function maskKey(key: string): string {
   if (key.length <= 8) return `${key.slice(0, 4)}...`;
   return `${key.slice(0, 8)}...`;

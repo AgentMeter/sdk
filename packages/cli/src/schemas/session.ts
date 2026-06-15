@@ -5,6 +5,8 @@ export const TokensSchema = z.object({
   output: z.number().int().nonnegative(),
   cacheRead: z.number().int().nonnegative(),
   cacheWrite: z.number().int().nonnegative(),
+  /** When true, token counts are estimates rather than exact API-reported values */
+  isApproximate: z.boolean().optional(),
 });
 
 export const LocalSessionSchema = z.object({
@@ -12,7 +14,7 @@ export const LocalSessionSchema = z.object({
   repoFullName: z.string(),
   engine: z.string(),
   model: z.string().nullable(),
-  status: z.enum(['success', 'failure', 'cancelled']),
+  status: z.enum(['running', 'success', 'failure', 'cancelled']),
   title: z.string().nullable(),
   startTime: z.string(),
   endTime: z.string().nullable(),
@@ -20,5 +22,8 @@ export const LocalSessionSchema = z.object({
   tokens: TokensSchema,
 });
 
+/** Aggregated token counts for a session */
 export type Tokens = z.infer<typeof TokensSchema>;
+
+/** Normalized session record produced by a scanner and submitted to the API */
 export type LocalSession = z.infer<typeof LocalSessionSchema>;

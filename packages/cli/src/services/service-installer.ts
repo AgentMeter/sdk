@@ -24,16 +24,31 @@ function getSystemdServicePath(): string {
 }
 
 /**
- * Resolves the installed agentmeter binary path, falling back to argv[1]
+ * Returns the program + arguments array for the service watch command.
+ * When running from TypeScript source (dev mode via tsx), uses the tsx binary
+ * as the program so launchd/systemd can execute the .ts file directly.
  */
-function findBinaryPath(): string {
-  try {
-    const result = execFileSync('which', ['agentmeter'], { encoding: 'utf8' }).trim();
-    if (result) return result;
-  } catch {
-    // which failed — fall back to current script path
+function getServiceProgramArgs(): string[] {
+  const scriptPath = process.argv[1] ?? '';
+
+  if (scriptPath.endsWith('.ts')) {
+    // Dev mode: find tsx binary and use it as the runner
+    try {
+      const tsx = execFileSync('which', ['tsx'], { encoding: 'utf8' }).trim();
+      if (tsx) return [tsx, scriptPath, 'watch'];
+    } catch {
+      // tsx not in PATH — fall through to production path
+    }
   }
-  return process.argv[1] ?? 'agentmeter';
+
+  // Production: agentmeter global binary, or fall back to argv[1]
+  try {
+    const binary = execFileSync('which', ['agentmeter'], { encoding: 'utf8' }).trim();
+    if (binary) return [process.execPath, binary, 'watch'];
+  } catch {
+    // not installed globally
+  }
+  return [process.execPath, scriptPath, 'watch'];
 }
 
 /**
@@ -49,10 +64,14 @@ function escapeXml(str: string): string {
 }
 
 /**
- * Generates the launchd plist XML content for the agentmeter sync service
+ * Generates the launchd plist XML content for the agentmeter sync service.
+ * Includes the node binary's directory in PATH so tsx shell wrappers can find node,
+ * since launchd runs with a minimal environment that omits /usr/local/bin.
  */
-function generatePlist(binaryPath: string, apiKey: string, logPath: string): string {
-  const nodePath = process.execPath;
+function generatePlist(programArgs: string[], config: Config, logPath: string): string {
+  const argsXml = programArgs.map((a) => `        <string>${escapeXml(a)}</string>`).join('\n');
+  const nodeBinDir = path.dirname(process.execPath);
+  const servicePath = `${nodeBinDir}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -61,9 +80,7 @@ function generatePlist(binaryPath: string, apiKey: string, logPath: string): str
     <string>${escapeXml(LAUNCHD_LABEL)}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${escapeXml(nodePath)}</string>
-        <string>${escapeXml(binaryPath)}</string>
-        <string>watch</string>
+${argsXml}
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -75,8 +92,12 @@ function generatePlist(binaryPath: string, apiKey: string, logPath: string): str
     <string>${escapeXml(logPath)}</string>
     <key>EnvironmentVariables</key>
     <dict>
+        <key>PATH</key>
+        <string>${escapeXml(servicePath)}</string>
         <key>AGENTMETER_API_KEY</key>
-        <string>${escapeXml(apiKey)}</string>
+        <string>${escapeXml(config.apiKey)}</string>
+        <key>AGENTMETER_API_URL</key>
+        <string>${escapeXml(config.apiUrl)}</string>
     </dict>
 </dict>
 </plist>
@@ -86,17 +107,17 @@ function generatePlist(binaryPath: string, apiKey: string, logPath: string): str
 /**
  * Generates the systemd unit file content for the agentmeter sync service
  */
-function generateSystemdUnit(binaryPath: string, apiKey: string): string {
-  const nodePath = process.execPath;
+function generateSystemdUnit(programArgs: string[], config: Config): string {
   return `[Unit]
 Description=AgentMeter Session Sync
 
 [Service]
 Type=simple
-ExecStart=${nodePath} ${binaryPath} watch
+ExecStart=${programArgs.join(' ')}
 Restart=on-failure
 RestartSec=30
-Environment=AGENTMETER_API_KEY=${apiKey}
+Environment=AGENTMETER_API_KEY=${config.apiKey}
+Environment=AGENTMETER_API_URL=${config.apiUrl}
 
 [Install]
 WantedBy=default.target
@@ -107,7 +128,7 @@ WantedBy=default.target
  * Installs and starts the agentmeter launchd service on macOS
  */
 export function installMacos(config: Config): void {
-  const binaryPath = findBinaryPath();
+  const programArgs = getServiceProgramArgs();
   const logDir = getLogDir();
   const logPath = getLogPath();
   const plistPath = getLaunchdPlistPath();
@@ -115,7 +136,7 @@ export function installMacos(config: Config): void {
   fs.mkdirSync(logDir, { recursive: true });
   fs.mkdirSync(path.dirname(plistPath), { recursive: true });
 
-  const plist = generatePlist(binaryPath, config.apiKey, logPath);
+  const plist = generatePlist(programArgs, config, logPath);
   fs.writeFileSync(plistPath, plist, 'utf8');
 
   // Unload first in case it was previously installed
@@ -138,12 +159,12 @@ export function uninstallMacos(): void {
  * Installs and starts the agentmeter systemd user service on Linux
  */
 export function installLinux(config: Config): void {
-  const binaryPath = findBinaryPath();
+  const programArgs = getServiceProgramArgs();
   const servicePath = getSystemdServicePath();
 
   fs.mkdirSync(path.dirname(servicePath), { recursive: true });
 
-  const unit = generateSystemdUnit(binaryPath, config.apiKey);
+  const unit = generateSystemdUnit(programArgs, config);
   fs.writeFileSync(servicePath, unit, 'utf8');
 
   spawnSync('systemctl', ['--user', 'daemon-reload']);
