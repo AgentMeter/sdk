@@ -11,23 +11,51 @@ import { logger } from '../services/logger.js';
 import { readSyncState, writeSyncState } from '../services/sync-state.js';
 import { formatCost, formatDuration } from '../utils/format.js';
 
+/**
+ * Runtime options for a sync run, controlling output and filtering
+ */
 export interface SyncOptions {
+  /** Whether to print a row for every session processed */
   verbose: boolean;
+
+  /** When true, reports what would be submitted without sending any data */
   dryRun: boolean;
+
+  /** ISO 8601 date string; only sessions starting on or after this date are included */
   since?: string;
+
+  /** Scanner name filter (e.g. "claude"); omit to include all available scanners */
   engine?: string;
 }
 
+/**
+ * Aggregated counts and cost totals returned from a completed sync run
+ */
 export interface SyncResult {
+  /** Number of sessions submitted for the first time */
   newCount: number;
+
+  /** Number of sessions re-submitted because their status or endTime changed */
   updatedCount: number;
+
+  /** Number of sessions that were already up-to-date and skipped */
   skippedCount: number;
+
+  /** Number of sessions that failed to submit */
   errorCount: number;
+
+  /** Sum of costCents across all successfully submitted sessions */
   totalCostCents: number;
 }
 
+/**
+ * Sessions split into those needing submission and those already up-to-date
+ */
 interface SessionClassification {
+  /** Sessions to submit, tagged with whether they are new or just updated */
   toSync: Array<{ session: LocalSession; isNew: boolean }>;
+
+  /** Sessions that match their already-synced state and can be skipped */
   skipped: LocalSession[];
 }
 
@@ -68,7 +96,8 @@ function classifySessions(sessions: LocalSession[], syncState: SyncState): Sessi
       toSync.push({ session, isNew: true });
     } else if (
       existing.status !== session.status ||
-      existing.endTime !== (session.endTime ?? null)
+      existing.endTime !== (session.endTime ?? null) ||
+      (existing.title ?? null) !== (session.title ?? null)
     ) {
       toSync.push({ session, isNew: false });
     } else {
@@ -143,6 +172,7 @@ async function submitAll(
       submittedAt: new Date().toISOString(),
       costCents: result.costCents ?? null,
       endTime: session.endTime ?? null,
+      title: session.title ?? null,
     };
 
     if (result.costCents) totalCostCents += result.costCents;
