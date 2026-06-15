@@ -66,7 +66,10 @@ function classifySessions(sessions: LocalSession[], syncState: SyncState): Sessi
     const existing = syncState.sessions[session.sessionId];
     if (!existing) {
       toSync.push({ session, isNew: true });
-    } else if (existing.status !== session.status) {
+    } else if (
+      existing.status !== session.status ||
+      existing.endTime !== (session.endTime ?? null)
+    ) {
       toSync.push({ session, isNew: false });
     } else {
       skipped.push(session);
@@ -139,6 +142,7 @@ async function submitAll(
       status: session.status,
       submittedAt: new Date().toISOString(),
       costCents: result.costCents ?? null,
+      endTime: session.endTime ?? null,
     };
 
     if (result.costCents) totalCostCents += result.costCents;
