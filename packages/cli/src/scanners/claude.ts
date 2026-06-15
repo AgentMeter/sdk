@@ -87,9 +87,12 @@ function stripMarkdownHeading(text: string): string {
  * (from ai-title entries) over the first meaningful user message.
  */
 function extractTitle(entries: JournalEntry[]): string | null {
-  // Prefer the AI-generated title Claude Code writes to the JSONL
-  for (const entry of entries) {
-    if (entry.type === 'ai-title' && entry.aiTitle) return entry.aiTitle.slice(0, 120);
+  // Prefer the AI-generated title Claude Code writes to the JSONL.
+  // Iterate in reverse — Claude Code rewrites the title as the conversation progresses,
+  // so the last ai-title entry is the most accurate.
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (entry?.type === 'ai-title' && entry.aiTitle) return entry.aiTitle.slice(0, 120);
   }
 
   // Fall back to first meaningful user message
