@@ -64,10 +64,14 @@ function escapeXml(str: string): string {
 }
 
 /**
- * Generates the launchd plist XML content for the agentmeter sync service
+ * Generates the launchd plist XML content for the agentmeter sync service.
+ * Includes the node binary's directory in PATH so tsx shell wrappers can find node,
+ * since launchd runs with a minimal environment that omits /usr/local/bin.
  */
 function generatePlist(programArgs: string[], config: Config, logPath: string): string {
   const argsXml = programArgs.map((a) => `        <string>${escapeXml(a)}</string>`).join('\n');
+  const nodeBinDir = path.dirname(process.execPath);
+  const servicePath = `${nodeBinDir}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -88,6 +92,8 @@ ${argsXml}
     <string>${escapeXml(logPath)}</string>
     <key>EnvironmentVariables</key>
     <dict>
+        <key>PATH</key>
+        <string>${escapeXml(servicePath)}</string>
         <key>AGENTMETER_API_KEY</key>
         <string>${escapeXml(config.apiKey)}</string>
         <key>AGENTMETER_API_URL</key>
