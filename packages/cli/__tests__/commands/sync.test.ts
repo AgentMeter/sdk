@@ -15,6 +15,20 @@ vi.mock('../../src/utils/platform.js', () => ({
   getPlatform: () => 'macos',
 }));
 
+// Prevent the Cursor scanner from hitting real system files in tests —
+// it would scan the developer's actual Cursor data dir if not mocked.
+vi.mock('../../src/scanners/cursor.js', () => ({
+  CursorScanner: class {
+    readonly name = 'cursor';
+    async isAvailable() {
+      return false;
+    }
+    async scan() {
+      return [];
+    }
+  },
+}));
+
 vi.mock('../../src/services/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   setForegroundMode: vi.fn(),

@@ -108,7 +108,7 @@ export class ApiClient {
             outputTokens: t.output,
             cacheReadTokens: t.cacheRead,
             cacheWriteTokens: t.cacheWrite,
-            isApproximate: false,
+            isApproximate: t.isApproximate ?? false,
           }
         : null,
     };

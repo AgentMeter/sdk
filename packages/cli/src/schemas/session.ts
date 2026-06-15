@@ -5,6 +5,8 @@ export const TokensSchema = z.object({
   output: z.number().int().nonnegative(),
   cacheRead: z.number().int().nonnegative(),
   cacheWrite: z.number().int().nonnegative(),
+  /** When true, token counts are estimates rather than exact API-reported values */
+  isApproximate: z.boolean().optional(),
 });
 
 export const LocalSessionSchema = z.object({
