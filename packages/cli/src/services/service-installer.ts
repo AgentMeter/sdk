@@ -51,7 +51,7 @@ function escapeXml(str: string): string {
 /**
  * Generates the launchd plist XML content for the agentmeter sync service
  */
-function generatePlist(binaryPath: string, apiKey: string, logPath: string): string {
+function generatePlist(binaryPath: string, config: Config, logPath: string): string {
   const nodePath = process.execPath;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -76,7 +76,9 @@ function generatePlist(binaryPath: string, apiKey: string, logPath: string): str
     <key>EnvironmentVariables</key>
     <dict>
         <key>AGENTMETER_API_KEY</key>
-        <string>${escapeXml(apiKey)}</string>
+        <string>${escapeXml(config.apiKey)}</string>
+        <key>AGENTMETER_API_URL</key>
+        <string>${escapeXml(config.apiUrl)}</string>
     </dict>
 </dict>
 </plist>
@@ -86,7 +88,7 @@ function generatePlist(binaryPath: string, apiKey: string, logPath: string): str
 /**
  * Generates the systemd unit file content for the agentmeter sync service
  */
-function generateSystemdUnit(binaryPath: string, apiKey: string): string {
+function generateSystemdUnit(binaryPath: string, config: Config): string {
   const nodePath = process.execPath;
   return `[Unit]
 Description=AgentMeter Session Sync
@@ -96,7 +98,8 @@ Type=simple
 ExecStart=${nodePath} ${binaryPath} watch
 Restart=on-failure
 RestartSec=30
-Environment=AGENTMETER_API_KEY=${apiKey}
+Environment=AGENTMETER_API_KEY=${config.apiKey}
+Environment=AGENTMETER_API_URL=${config.apiUrl}
 
 [Install]
 WantedBy=default.target
@@ -115,7 +118,7 @@ export function installMacos(config: Config): void {
   fs.mkdirSync(logDir, { recursive: true });
   fs.mkdirSync(path.dirname(plistPath), { recursive: true });
 
-  const plist = generatePlist(binaryPath, config.apiKey, logPath);
+  const plist = generatePlist(binaryPath, config, logPath);
   fs.writeFileSync(plistPath, plist, 'utf8');
 
   // Unload first in case it was previously installed
@@ -143,7 +146,7 @@ export function installLinux(config: Config): void {
 
   fs.mkdirSync(path.dirname(servicePath), { recursive: true });
 
-  const unit = generateSystemdUnit(binaryPath, config.apiKey);
+  const unit = generateSystemdUnit(binaryPath, config);
   fs.writeFileSync(servicePath, unit, 'utf8');
 
   spawnSync('systemctl', ['--user', 'daemon-reload']);
