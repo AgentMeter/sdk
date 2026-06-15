@@ -12,7 +12,7 @@ export const LocalSessionSchema = z.object({
   repoFullName: z.string(),
   engine: z.string(),
   model: z.string().nullable(),
-  status: z.enum(['success', 'failure', 'cancelled']),
+  status: z.enum(['running', 'success', 'failure', 'cancelled']),
   title: z.string().nullable(),
   startTime: z.string(),
   endTime: z.string().nullable(),

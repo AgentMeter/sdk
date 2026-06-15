@@ -205,10 +205,19 @@ function extractTiming(entries: JournalEntry[]): {
   return { startTime, endTime, durationSeconds };
 }
 
+const RUNNING_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
+
 /**
- * Determines session status from the last assistant stop_reason
+ * Determines session status. Returns 'running' if the last entry timestamp is
+ * within 30 minutes — the session is likely still active. Otherwise uses the
+ * last assistant stop_reason to distinguish success from failure.
  */
 function extractStatus(entries: JournalEntry[]): LocalSession['status'] {
+  const lastTimestamp = [...entries].reverse().find((e) => e.timestamp)?.timestamp;
+  if (lastTimestamp && Date.now() - new Date(lastTimestamp).getTime() < RUNNING_THRESHOLD_MS) {
+    return 'running';
+  }
+
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i];
     if (entry?.type === 'assistant' && entry.message?.stop_reason) {

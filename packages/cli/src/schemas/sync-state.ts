@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const SyncedSessionSchema = z.object({
-  status: z.enum(['success', 'failure', 'cancelled']),
+  status: z.enum(['running', 'success', 'failure', 'cancelled']),
   submittedAt: z.string(),
   costCents: z.number().int().nullable().optional(),
   endTime: z.string().nullable().optional(),
