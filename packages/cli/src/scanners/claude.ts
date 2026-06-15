@@ -42,6 +42,7 @@ const JournalEntrySchema = z
   })
   .passthrough();
 
+/** A single line parsed from a Claude Code JSONL session file */
 type JournalEntry = z.infer<typeof JournalEntrySchema>;
 
 /**

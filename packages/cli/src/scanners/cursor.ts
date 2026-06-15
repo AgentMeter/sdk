@@ -5,6 +5,9 @@ import type { LocalSession } from '../schemas/session.js';
 import { logger } from '../services/logger.js';
 import type { SessionScanner } from './types.js';
 
+/**
+ * Returns the platform-specific path to Cursor's application data directory
+ */
 function getCursorDataDir(): string {
   if (process.platform === 'darwin') {
     return path.join(os.homedir(), 'Library', 'Application Support', 'Cursor');
@@ -15,9 +18,15 @@ function getCursorDataDir(): string {
   return path.join(os.homedir(), 'AppData', 'Roaming', 'Cursor');
 }
 
+/**
+ * Scanner for Cursor AI coding agent sessions (support coming soon)
+ */
 export class CursorScanner implements SessionScanner {
   readonly name = 'cursor';
 
+  /**
+   * Returns true if the Cursor application data directory exists on this machine
+   */
   async isAvailable(): Promise<boolean> {
     try {
       return fs.statSync(getCursorDataDir()).isDirectory();
@@ -26,6 +35,9 @@ export class CursorScanner implements SessionScanner {
     }
   }
 
+  /**
+   * Placeholder — always returns an empty array until Cursor support is implemented
+   */
   async scan(): Promise<LocalSession[]> {
     logger.info('Cursor support coming soon — skipping');
     return [];

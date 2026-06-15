@@ -12,5 +12,8 @@ export const ValidateKeyResponseSchema = z.object({
   keyType: z.enum(['personal', 'org']).optional(),
 });
 
+/** Successful API response from POST /api/ingest/local */
 export type ApiSuccessResponse = z.infer<typeof ApiSuccessResponseSchema>;
+
+/** Response from GET /api/auth/me key validation endpoint */
 export type ValidateKeyResponse = z.infer<typeof ValidateKeyResponseSchema>;

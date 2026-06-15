@@ -50,6 +50,7 @@ export function getClaudeProjectsDir(): string {
   return path.join(getHomeDir(), '.claude', 'projects');
 }
 
+/** Normalized platform identifier returned by getPlatform */
 export type Platform = 'macos' | 'linux' | 'windows' | 'unsupported';
 
 /**

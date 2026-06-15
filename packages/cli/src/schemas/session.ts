@@ -20,5 +20,8 @@ export const LocalSessionSchema = z.object({
   tokens: TokensSchema,
 });
 
+/** Aggregated token counts for a session */
 export type Tokens = z.infer<typeof TokensSchema>;
+
+/** Normalized session record produced by a scanner and submitted to the API */
 export type LocalSession = z.infer<typeof LocalSessionSchema>;
