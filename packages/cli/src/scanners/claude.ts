@@ -37,6 +37,7 @@ const JournalEntrySchema = z
     uuid: z.string().optional(),
     timestamp: z.string().optional(),
     cwd: z.string().optional(),
+    aiTitle: z.string().optional(),
     message: MessageSchema.optional(),
   })
   .passthrough();
@@ -81,11 +82,16 @@ function stripMarkdownHeading(text: string): string {
 }
 
 /**
- * Finds the first meaningful user message to use as the session title.
- * Skips entries whose content begins with an XML-style tag (e.g. <ide_opened_file>).
- * Strips leading markdown heading syntax (e.g. # My Title → My Title).
+ * Extracts the session title, preferring Claude Code's AI-generated title
+ * (from ai-title entries) over the first meaningful user message.
  */
 function extractTitle(entries: JournalEntry[]): string | null {
+  // Prefer the AI-generated title Claude Code writes to the JSONL
+  for (const entry of entries) {
+    if (entry.type === 'ai-title' && entry.aiTitle) return entry.aiTitle.slice(0, 120);
+  }
+
+  // Fall back to first meaningful user message
   for (const entry of entries) {
     if (entry.type !== 'user' || !entry.message) continue;
     const content = entry.message.content;
