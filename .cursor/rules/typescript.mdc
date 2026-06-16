@@ -1,0 +1,44 @@
+---
+description: TypeScript code style and JSDoc conventions
+globs: **/*.ts,**/*.tsx
+alwaysApply: false
+---
+
+# TypeScript
+
+- Strict mode; explicit return types on all exported functions
+- `async/await` over `.then()`; descriptive variable names
+- Object params (not positional); params alphabetical
+- Each function in its own file when possible
+- Linting: Biome — do NOT install or reference ESLint or Prettier
+
+## JSDoc
+
+JSDoc block above every exported function, `interface`, and `type` — no `@param`/`@returns` tags; TypeScript is the source of truth. Document each param inline in the type definition.
+
+```typescript
+/**
+ * Does X for reason Y
+ */
+const myFunc = ({
+  bar,
+  foo,
+}: {
+  /** What bar represents */
+  bar: number;
+
+  /** What foo represents */
+  foo?: string;
+}): void => {};
+
+/**
+ * Represents an animal of the feline species
+ */
+interface Cat {
+  /** The color of the fur */
+  color: string;
+
+  /** The weight in pounds */
+  weight: number;
+}
+```

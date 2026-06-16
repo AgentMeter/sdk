@@ -1,0 +1,15 @@
+---
+description: Vitest testing conventions for this project
+globs: **/__tests__/**/*.ts,**/*.test.ts
+alwaysApply: false
+---
+
+# Testing
+
+- Write tests for new code
+- Import from `vitest` explicitly: `import { describe, it, expect, vi, beforeEach } from 'vitest'`
+- Use `vi.fn()`, `vi.spyOn()`, `vi.mock()` — **never** `jest.fn()` or `jest.spyOn()`
+- Scanner tests use real-shaped JSONL fixtures in `__tests__/fixtures/`
+- API/fetch tests: `vi.stubGlobal('fetch', vi.fn())`
+- Config and sync-state tests use tmp directories
+- All tests must complete in < 10 seconds total
