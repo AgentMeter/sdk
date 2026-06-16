@@ -8,6 +8,8 @@ Releases are triggered by publishing a GitHub Release. The workflow automaticall
 
 ### 1. npm Automation token
 
+> **TODO**: Replace with a dedicated `agentmeter-bot` npm account holding a no-expiry Classic Automation token. Invite the bot to the `agentmeter` org with publish permissions, generate the token from the bot account, and update `NPM_TOKEN` in GitHub Secrets. The current granular token expires in 90 days and must be manually rotated.
+
 1. Go to [npmjs.com](https://www.npmjs.com) → avatar → **Access Tokens** → **Generate New Token**
 2. Fill in the Granular Access Token form:
    - **Bypass 2FA**: ✅ checked
