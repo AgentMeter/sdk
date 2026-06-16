@@ -8,8 +8,12 @@ Releases are triggered by publishing a GitHub Release. The workflow automaticall
 
 ### 1. npm Automation token
 
-1. Go to [npmjs.com](https://www.npmjs.com) → avatar → **Access Tokens** → **Generate New Token** → **Classic Token**
-2. Choose **Automation** (bypasses 2FA for CI use)
+1. Go to [npmjs.com](https://www.npmjs.com) → avatar → **Access Tokens** → **Generate New Token**
+2. Fill in the Granular Access Token form:
+   - **Bypass 2FA**: ✅ checked
+   - **Packages and scopes → Permissions**: Read and write
+   - **Select packages**: All packages (tighten to `@agentmeter/cli` after first publish)
+   - **Organizations**: No access
 3. Copy the token
 
 ### 2. GitHub secret
