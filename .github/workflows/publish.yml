@@ -1,0 +1,68 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Use a token with write access so we can push the version bump commit back
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      # Parse the release title as a conventional commit to determine bump type:
+      #   feat!: / BREAKING CHANGE  → major
+      #   feat:                     → minor
+      #   fix: / chore: / anything  → patch
+      - name: Determine bump type
+        id: bump
+        env:
+          TITLE: ${{ github.event.release.name }}
+        run: |
+          if [[ "$TITLE" =~ !: ]] || echo "$TITLE" | grep -qi "BREAKING CHANGE"; then
+            echo "type=major" >> $GITHUB_OUTPUT
+          elif [[ "$TITLE" =~ ^feat(\(.+\))?: ]]; then
+            echo "type=minor" >> $GITHUB_OUTPUT
+          else
+            echo "type=patch" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Bump version in package.json
+        id: version
+        working-directory: packages/cli
+        run: |
+          NEW_VERSION=$(npm version ${{ steps.bump.outputs.type }} --no-git-tag-version)
+          echo "version=${NEW_VERSION#v}" >> $GITHUB_OUTPUT
+
+      - name: Commit and push version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add packages/cli/package.json
+          git commit -m "chore: release @agentmeter/cli@${{ steps.version.outputs.version }} [skip ci]"
+          git push origin HEAD:main
+
+      - name: Build
+        run: pnpm --filter @agentmeter/cli build
+
+      - name: Publish to npm
+        working-directory: packages/cli
+        run: pnpm publish --no-git-checks --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
