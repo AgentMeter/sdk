@@ -40,7 +40,7 @@ launchctl list com.agentmeter.sync
 ## 5. Watch the logs
 
 ```bash
-tail -f ~/.agentmeter/sync.log
+tail -f ~/.agentmeter/logs/sync.log
 ```
 
 ## 6. Test reboot persistence
@@ -49,7 +49,7 @@ Restart your machine. After login:
 
 ```bash
 launchctl list com.agentmeter.sync   # should show a PID
-tail ~/.agentmeter/sync.log          # should show sync activity
+tail ~/.agentmeter/logs/sync.log          # should show sync activity
 ```
 
 > **Note:** `localhost:3000` won't be running automatically after reboot, so the service will log connection errors until your Next.js server is started. That's expected — it confirms the reboot persistence mechanism is working correctly.
