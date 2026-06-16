@@ -8,8 +8,8 @@ Releases are triggered by publishing a GitHub Release. The workflow automaticall
 
 ### 1. npm Automation token
 
-1. Go to [npmjs.com](https://www.npmjs.com) → avatar → **Access Tokens** → **Generate New Token**
-2. Choose **Automation** (not Classic — Automation tokens work with CI without 2FA prompts)
+1. Go to [npmjs.com](https://www.npmjs.com) → avatar → **Access Tokens** → **Generate New Token** → **Classic Token**
+2. Choose **Automation** (bypasses 2FA for CI use)
 3. Copy the token
 
 ### 2. GitHub secret
