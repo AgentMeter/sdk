@@ -16,7 +16,7 @@
   "author": "Adam Henson",
   "repository": {
     "type": "git",
-    "url": "https://github.com/agentmeter/cli"
+    "url": "https://github.com/AgentMeter/sdk"
   },
   "homepage": "https://agentmeter.app",
   "engines": {
