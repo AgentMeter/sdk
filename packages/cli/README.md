@@ -1,6 +1,18 @@
 # @agentmeter/cli
 
-Track local AI coding agent session costs — Claude Code, Cursor, and more.
+`@agentmeter/cli` scans your local AI coding agent data, calculates per-session token costs, and syncs them to [AgentMeter](https://agentmeter.app) — giving you a unified dashboard of AI spend across tools and projects.
+
+It reads session data directly from the agents installed on your machine (no proxying, no API key sharing):
+
+- **Claude Code** — parses JSONL conversation logs written to `~/.claude/projects/`, extracting exact token counts from the Anthropic API responses recorded there.
+- **Cursor** — reads the local SQLite state database, extracting token usage across all three storage formats Cursor has used. Token counts are approximate since Cursor is subscription-based and doesn't expose exact API billing data locally.
+
+On each sync, the CLI submits session records to the [AgentMeter](https://agentmeter.app) ingest API (`POST /api/ingest/local`), which calculates costs against the current model pricing matrix and makes them visible in your dashboard. Sessions are tracked by ID so re-syncing is safe — existing records are updated, not duplicated.
+
+## Requirements
+
+- **Node.js 22.5+** — the Cursor scanner uses `node:sqlite`, a built-in module added in Node 22.5.
+- **macOS or Linux** — scanning and background service installation are supported on both. Windows can run `sync` manually but `install`/`uninstall` (launchd / systemd) are not supported.
 
 ## Quick Start
 
@@ -50,7 +62,7 @@ All commands respect these environment variables:
 
 ## Supported Agents
 
-| Agent       | Status      |
-| ----------- | ----------- |
-| Claude Code | ✓ Supported |
-| Cursor      | Coming soon |
+| Agent       | Token data                          |
+| ----------- | ----------------------------------- |
+| Claude Code | Exact (from Anthropic API response) |
+| Cursor      | Approximate (subscription-based)    |

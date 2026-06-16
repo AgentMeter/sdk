@@ -19,6 +19,9 @@
     "url": "https://github.com/agentmeter/cli"
   },
   "homepage": "https://agentmeter.app",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "type": "module",
   "bin": {
     "agentmeter": "./dist/index.js"
