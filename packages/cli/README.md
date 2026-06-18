@@ -1,31 +1,43 @@
 # @agentmeter/cli
 
-`@agentmeter/cli` scans your local AI coding agent data, calculates per-session token costs, and syncs them to [AgentMeter](https://agentmeter.app) — giving you a unified dashboard of AI spend across tools and projects.
+# @agentmeter/cli
 
-It reads session data directly from the agents installed on your machine (no proxying, no API key sharing):
+Track what your AI coding sessions actually cost. `@agentmeter/cli` scans your local Claude Code and Cursor session data, calculates per-session token costs, and syncs them to [AgentMeter](https://agentmeter.app) - giving you and your team a unified dashboard of AI spend across tools, projects, and engineers.
 
-- **Claude Code** — parses JSONL conversation logs written to `~/.claude/projects/`, extracting exact token counts from the Anthropic API responses recorded there.
-- **Cursor** — reads the local SQLite state database, extracting token usage across all three storage formats Cursor has used. Token counts are approximate since Cursor is subscription-based and doesn't expose exact API billing data locally.
+No proxying. No API key sharing. The CLI reads session data that the agents already write to your machine.
 
-On each sync, the CLI submits session records to the [AgentMeter](https://agentmeter.app) ingest API (`POST /api/ingest/local`), which calculates costs against the current model pricing matrix and makes them visible in your dashboard. Sessions are tracked by ID so re-syncing is safe — existing records are updated, not duplicated.
+- **Claude Code** — parses JSONL conversation logs in `~/.claude/projects/`, extracting exact token counts from the recorded Anthropic API responses.
+- **Cursor** — reads the local SQLite state database across all three storage formats Cursor has used. Counts are approximate (Cursor is subscription-based and doesn't expose exact billing data locally).
+
+Sessions are tracked by ID, so re-syncing is safe — existing records update rather than duplicate.
+
+## Why
+
+Engineering teams are adopting AI coding agents faster than they can track the cost. Provider dashboards show an aggregate monthly number; they can't tell you which engineer, which project, or which task drove the spend. AgentMeter is the attribution layer - visibility before the bill arrives, not after.
 
 ## Requirements
 
-- **Node.js 22.5+** — the Cursor scanner uses `node:sqlite`, a built-in module added in Node 22.5.
-- **macOS or Linux** — scanning and background service installation are supported on both. Windows can run `sync` manually but `install`/`uninstall` (launchd / systemd) are not supported.
+- **Node.js 22.5+** — the Cursor scanner uses `node:sqlite`, built in as of 22.5.
+- **macOS or Linux** — full support including background service. On Windows, `sync` works manually but `install`/`uninstall` (launchd/systemd) do not.
 
 ## Quick Start
 
 ```bash
-# Initialize with your API key
+# 1. Get your API key from https://agentmeter.app/settings/api-keys
+# 2. Initialize
 npx @agentmeter/cli init
 
-# Sync sessions once
-npx @agentmeter/cli sync
+# 3. Sync once to confirm it works
+npx @agentmeter/cli sync --dry-run   # preview without sending
+npx @agentmeter/cli sync             # actually sync
 
-# Install as a background service
+# 4. Install as a background service so it runs automatically
 npx @agentmeter/cli install
 ```
+
+## Getting your API key
+
+Sign in at [agentmeter.app](https://agentmeter.app) with GitHub and generate a **personal API key** under Settings → API Keys. Personal keys attribute sessions to you specifically, so your costs show up correctly in team views. (Org-level keys work too, but sessions submitted with them won't be attributed to an individual.)
 
 ## Commands
 
@@ -33,7 +45,7 @@ npx @agentmeter/cli install
 | ----------- | --------------------------------------- |
 | `init`      | Configure API key and device name       |
 | `sync`      | One-time scan and upload                |
-| `watch`     | Background daemon mode                  |
+| `watch`     | Background daemon mode (foreground loop) |
 | `install`   | Install as system service (macOS/Linux) |
 | `uninstall` | Remove system service                   |
 | `status`    | Show service and sync health            |
@@ -45,7 +57,7 @@ npx @agentmeter/cli install
 | `--verbose` | Show each session's status (cost, duration, new/updated/unchanged) |
 | `--dry-run` | Show what would be submitted without sending anything |
 | `--since <date>` | Only sync sessions after this date (ISO 8601) |
-| `--engine <name>` | Only run a specific scanner (e.g. `claude`) |
+| `--engine <name>` | Only run a specific scanner (e.g. `claude`, `cursor`) |
 
 ### `watch` flags
 
@@ -53,12 +65,38 @@ npx @agentmeter/cli install
 |---|---|
 | `--interval <seconds>` | Sync interval in seconds (default: 300) |
 
-## Environment Variables
+## Running as a background service
 
-All commands respect these environment variables:
+`install` sets up the CLI to sync automatically every 5 minutes, survive reboots, and start on login — so neither you nor your teammates have to remember to run it.
+
+- **macOS** — installs a launchd agent (`~/Library/LaunchAgents/`).
+- **Linux** — installs a systemd user service.
+
+Check it's healthy anytime:
+
+```bash
+npx @agentmeter/cli status
+```
+
+Remove it cleanly (config is preserved):
+
+```bash
+npx @agentmeter/cli uninstall
+```
+
+## For teams
+
+Rolling this out across a team? Add `npx @agentmeter/cli init` and
+`npx @agentmeter/cli install` to your onboarding script or setup docs. Each engineer uses their own personal API key, so the dashboard attributes spend per person automatically. The team admin can see coverage - who's set up and who hasn't - in the AgentMeter dashboard.
+
+## Environment Variables
 
 - `AGENTMETER_API_KEY` — overrides the API key in config
 - `AGENTMETER_API_URL` — overrides the API URL (useful for local dev)
+
+## Privacy
+
+AgentMeter stores session metadata and token counts — never your code, prompts, or conversation content. The CLI only extracts: token counts, model, timestamps, duration, project path, and the first line of the session as a title. Nothing else leaves your machine.
 
 ## Supported Agents
 
@@ -66,3 +104,8 @@ All commands respect these environment variables:
 | ----------- | ----------------------------------- |
 | Claude Code | Exact (from Anthropic API response) |
 | Cursor      | Approximate (subscription-based)    |
+
+## Links
+
+- [AgentMeter dashboard](https://agentmeter.app)
+- [How it works](https://agentmeter.app/how-it-works)
