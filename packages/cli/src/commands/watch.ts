@@ -1,6 +1,8 @@
 import { Command } from 'commander';
 import pc from 'picocolors';
+import { getEffectiveConfig } from '../services/config.js';
 import { setForegroundMode } from '../services/logger.js';
+import { ApiClient } from '../services/api.js';
 import { runSync } from './sync.js';
 
 const DEFAULT_INTERVAL_SECONDS = 300;
@@ -36,6 +38,10 @@ export const watchCommand = new Command('watch')
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
 
+    // Build API client once — reused across every interval for ping calls
+    const config = getEffectiveConfig();
+    const api = config ? new ApiClient(config) : null;
+
     if (!options.background) {
       console.log(
         pc.dim(
@@ -46,6 +52,15 @@ export const watchCommand = new Command('watch')
 
     while (!shuttingDown) {
       const now = new Date().toLocaleTimeString('en-US', { hour12: false });
+
+      // Fire heartbeat ping before sync so the dashboard shows "Connected"
+      // immediately when the watch loop wakes up. Fire-and-forget — a failed
+      // ping never blocks the sync.
+      if (api) {
+        api.sendPing().catch(() => {
+          // swallow — sendPing already logs internally
+        });
+      }
 
       try {
         const result = await runSync({ verbose: false });

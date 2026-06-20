@@ -22,6 +22,16 @@ export interface SubmitResult {
 }
 
 /**
+ * Outcome of sending a heartbeat ping to POST /api/ping
+ */
+export interface PingResult {
+  /** Whether the ping was accepted */
+  ok: boolean;
+  /** ISO string of when the ping was recorded, or null on failure */
+  pingedAt: string | null;
+}
+
+/**
  * Outcome of validating an API key against GET /api/auth/me
  */
 export interface ValidateKeyResult {
@@ -43,6 +53,34 @@ export interface ValidateKeyResult {
  */
 export class ApiClient {
   constructor(private readonly config: Config) {}
+
+  /**
+   * Sends a heartbeat to POST /api/ping so the contributor shows as "Connected"
+   * in the Contributors dashboard. Fire-and-forget — failures are logged but
+   * do not interrupt the sync loop. Only succeeds with personal API keys.
+   */
+  async sendPing(): Promise<PingResult> {
+    try {
+      const response = await fetch(`${this.config.apiUrl}/api/ping`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.config.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        logger.info(`Ping returned ${response.status} — skipping`);
+        return { ok: false, pingedAt: null };
+      }
+
+      const data = (await response.json()) as { ok?: boolean; pingedAt?: string };
+      return { ok: data.ok === true, pingedAt: data.pingedAt ?? null };
+    } catch {
+      logger.info('Ping failed (network error) — skipping');
+      return { ok: false, pingedAt: null };
+    }
+  }
 
   /**
    * Validates the configured API key against GET /api/auth/me.
