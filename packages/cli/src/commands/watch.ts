@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import pc from 'picocolors';
+import { ApiClient } from '../services/api.js';
 import { getEffectiveConfig } from '../services/config.js';
 import { setForegroundMode } from '../services/logger.js';
-import { ApiClient } from '../services/api.js';
 import { runSync } from './sync.js';
 
 const DEFAULT_INTERVAL_SECONDS = 300;
