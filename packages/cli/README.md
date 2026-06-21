@@ -46,6 +46,7 @@ Sign in at [agentmeter.app](https://agentmeter.app) with GitHub and generate a *
 | `watch`     | Background daemon mode (foreground loop) |
 | `install`   | Install as system service (macOS/Linux) |
 | `uninstall` | Remove system service                   |
+| `upgrade`   | Reinstall service from current binary   |
 | `status`    | Show service and sync health            |
 
 ### `sync` flags
@@ -81,6 +82,25 @@ Remove it cleanly (config is preserved):
 ```bash
 npx @agentmeter/cli uninstall
 ```
+
+## Upgrading
+
+If you have the background service running and want to update to the latest version:
+
+**npx (no global install):**
+
+```bash
+npx @agentmeter/cli@latest upgrade
+```
+
+**Global install:**
+
+```bash
+npm install -g @agentmeter/cli@latest
+agentmeter upgrade
+```
+
+`upgrade` stops the current service, reinstalls it pointing at the new binary, and starts it again. Config and sync state are preserved.
 
 ## For teams
 
