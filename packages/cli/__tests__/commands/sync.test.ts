@@ -89,6 +89,57 @@ describe('runSync', () => {
     expect(result.newCount).toBeGreaterThanOrEqual(0);
   });
 
+  it('auto-completes vanished RUNNING sessions on next full sync', async () => {
+    // Pre-seed sync state with a RUNNING session that has since vanished from disk
+    fs.writeFileSync(
+      path.join(tmpDir, 'sync-state.json'),
+      JSON.stringify({
+        lastSyncAt: new Date().toISOString(),
+        sessions: {
+          'vanished-session': {
+            status: 'running',
+            submittedAt: new Date().toISOString(),
+            costCents: null,
+            endTime: null,
+            title: 'Implement dark mode',
+            engine: 'claude-code',
+            repoFullName: 'org/repo',
+            model: 'claude-sonnet-4-5',
+            startTime: new Date(Date.now() - 60_000).toISOString(),
+          },
+        },
+      }),
+      'utf8',
+    );
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        status: 200,
+        json: async () => ({ sessionId: 'vanished-session', costCents: 0 }),
+      }),
+    );
+
+    const { runSync } = await import('../../src/commands/sync.js');
+    // No claude projects dir — scanner returns nothing, triggering vanished-session logic
+    const result = await runSync({ verbose: false });
+
+    expect(result.updatedCount).toBe(1);
+    expect(vi.mocked(fetch)).toHaveBeenCalledOnce();
+
+    // Sync state should now record it as success
+    const stateRaw = fs.readFileSync(path.join(tmpDir, 'sync-state.json'), 'utf8');
+    const state: unknown = JSON.parse(stateRaw);
+    expect(state).toMatchObject({
+      sessions: { 'vanished-session': { status: 'success' } },
+    });
+
+    // The submitted payload should have status: 'success' and a non-null completedAt
+    const body = JSON.parse((vi.mocked(fetch).mock.calls[0]?.[1] as RequestInit).body as string) as unknown;
+    expect(body).toMatchObject({ status: 'success' });
+    expect((body as { completedAt?: string }).completedAt).toBeTruthy();
+  });
+
   it('submits new sessions and updates sync state', async () => {
     const projectDir = path.join(tmpDir, 'claude-projects', 'my-project');
     fs.mkdirSync(projectDir, { recursive: true });

@@ -6,6 +6,11 @@ export const SyncedSessionSchema = z.object({
   costCents: z.number().int().nullable().optional(),
   endTime: z.string().nullable().optional(),
   title: z.string().nullable().optional(),
+  /** Stored so vanished RUNNING sessions can be reconstructed and closed on the next full sync */
+  engine: z.string().optional(),
+  repoFullName: z.string().optional(),
+  model: z.string().nullable().optional(),
+  startTime: z.string().optional(),
 });
 
 export const SyncStateSchema = z.object({

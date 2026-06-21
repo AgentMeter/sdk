@@ -109,6 +109,45 @@ function classifySessions(sessions: LocalSession[], syncState: SyncState): Sessi
 }
 
 /**
+ * Finds sessions in sync state that were last seen as RUNNING but are absent from the current
+ * scan results, and returns them as best-effort completion records (status: success, endTime: now).
+ *
+ * Only called during full scans (no --engine or --since filter) to avoid false positives from
+ * partial scan results.
+ */
+function resolveVanishedSessions(
+  scannedIds: Set<string>,
+  syncState: SyncState,
+): Array<{ session: LocalSession; isNew: boolean }> {
+  const now = new Date().toISOString();
+  const vanished: Array<{ session: LocalSession; isNew: boolean }> = [];
+
+  for (const [sessionId, stored] of Object.entries(syncState.sessions)) {
+    if (stored.status !== 'running') continue;
+    if (scannedIds.has(sessionId)) continue;
+    if (!stored.repoFullName || !stored.engine) continue;
+
+    vanished.push({
+      isNew: false,
+      session: {
+        sessionId,
+        repoFullName: stored.repoFullName,
+        engine: stored.engine,
+        model: stored.model ?? null,
+        status: 'success',
+        title: stored.title ?? null,
+        startTime: stored.startTime ?? now,
+        endTime: now,
+        durationSeconds: null,
+        tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      },
+    });
+  }
+
+  return vanished;
+}
+
+/**
  * Prints a dry-run summary listing what would be submitted without sending anything
  */
 function printDryRun(toSync: Array<{ session: LocalSession; isNew: boolean }>): void {
@@ -173,6 +212,10 @@ async function submitAll(
       costCents: result.costCents ?? null,
       endTime: session.endTime ?? null,
       title: session.title ?? null,
+      engine: session.engine,
+      repoFullName: session.repoFullName,
+      model: session.model,
+      startTime: session.startTime,
     };
 
     if (result.costCents) totalCostCents += result.costCents;
@@ -232,14 +275,20 @@ export async function runSync(options: Partial<SyncOptions> = {}): Promise<SyncR
   }
 
   const sessions = await gatherSessions(opts);
+  const syncState = readSyncState();
+  const { toSync, skipped } = classifySessions(sessions, syncState);
 
-  if (sessions.length === 0 && !opts.since) {
+  // On full scans (no engine/since filter), close out any RUNNING sessions that have
+  // vanished from disk — e.g. project deleted or Cursor window closed.
+  if (!opts.engine && !opts.since) {
+    const scannedIds = new Set(sessions.map((s) => s.sessionId));
+    toSync.push(...resolveVanishedSessions(scannedIds, syncState));
+  }
+
+  if (sessions.length === 0 && toSync.length === 0) {
     console.log(pc.yellow('No supported AI coding agents found on this machine.'));
     return { newCount: 0, updatedCount: 0, skippedCount: 0, errorCount: 0, totalCostCents: 0 };
   }
-
-  const syncState = readSyncState();
-  const { toSync, skipped } = classifySessions(sessions, syncState);
 
   if (opts.dryRun) {
     printDryRun(toSync);
