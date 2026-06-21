@@ -2,6 +2,7 @@ import os from 'node:os';
 import { Command } from 'commander';
 import pc from 'picocolors';
 import { ClaudeScanner } from '../scanners/claude.js';
+import { CursorScanner } from '../scanners/cursor.js';
 import { ApiClient } from '../services/api.js';
 import { getEffectiveConfig } from '../services/config.js';
 import { isServiceInstalled, isServiceRunning } from '../services/service-installer.js';
@@ -98,7 +99,21 @@ export const statusCommand = new Command('status')
       row('Claude Code', pc.dim('— ~/.claude not found'));
     }
 
-    row('Cursor', pc.dim('— Not yet supported'));
+    const cursorScanner = new CursorScanner();
+    const cursorAvailable = await cursorScanner.isAvailable();
+    if (cursorAvailable) {
+      try {
+        const cursorSessions = await cursorScanner.scan();
+        row(
+          'Cursor',
+          pc.green('✓ Scanning') + pc.dim(` (${cursorSessions.length} sessions found)`),
+        );
+      } catch {
+        row('Cursor', pc.yellow('⚠ Available but scan failed'));
+      }
+    } else {
+      row('Cursor', pc.dim('— Cursor not found'));
+    }
 
     // Paths
     row('Config', pc.dim(getConfigPath()));
