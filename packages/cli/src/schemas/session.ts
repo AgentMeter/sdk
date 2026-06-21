@@ -20,6 +20,7 @@ export const LocalSessionSchema = z.object({
   endTime: z.string().nullable(),
   durationSeconds: z.number().nullable(),
   tokens: TokensSchema,
+  turns: z.number().nullable(),
 });
 
 /** Aggregated token counts for a session */

@@ -63,6 +63,7 @@ const ComposerHeadersSchema = z
 interface BubbleData {
   modelName: string | null;
   contextTokens: number | null;
+  role: string | null;
 }
 
 // ─── Minimal protobuf decoder ──────────────────────────────────────────────
@@ -90,20 +91,25 @@ function readVarint(buf: Buffer, pos: number): [value: number, nextPos: number] 
 }
 
 /**
- * Extracts the modelName from a Cursor assistant message JSON blob (field 4).
+ * Extracts the role and modelName from a Cursor message JSON blob (field 4).
  * The JSON has shape: { role, content: [{ providerOptions: { cursor: { modelName } } }] }
  */
-function extractModelFromJson(jsonStr: string): string | null {
+function extractRoleAndModelFromJson(jsonStr: string): {
+  role: string | null;
+  modelName: string | null;
+} {
   let parsed: unknown;
   try {
     parsed = JSON.parse(jsonStr);
   } catch {
-    return null;
+    return { role: null, modelName: null };
   }
-  if (!parsed || typeof parsed !== 'object') return null;
+  if (!parsed || typeof parsed !== 'object') return { role: null, modelName: null };
   const p = parsed as Record<string, unknown>;
+  const role = typeof p.role === 'string' ? p.role : null;
+
   const content = p.content;
-  if (!Array.isArray(content)) return null;
+  if (!Array.isArray(content)) return { role, modelName: null };
   for (const item of content) {
     if (!item || typeof item !== 'object') continue;
     const opts = (item as Record<string, unknown>).providerOptions;
@@ -111,9 +117,9 @@ function extractModelFromJson(jsonStr: string): string | null {
     const cursor = (opts as Record<string, unknown>).cursor;
     if (!cursor || typeof cursor !== 'object') continue;
     const mn = (cursor as Record<string, unknown>).modelName;
-    if (typeof mn === 'string' && mn.length > 0) return mn;
+    if (typeof mn === 'string' && mn.length > 0) return { role, modelName: mn };
   }
-  return null;
+  return { role, modelName: null };
 }
 
 /**
@@ -126,10 +132,11 @@ function decodeBubbleCheckpoint(hex: string): BubbleData {
   try {
     buf = Buffer.from(hex, 'hex');
   } catch {
-    return { modelName: null, contextTokens: null };
+    return { modelName: null, contextTokens: null, role: null };
   }
 
   let modelName: string | null = null;
+  let role: string | null = null;
   let contextTokens: number | null = null;
   let offset = 0;
 
@@ -147,9 +154,11 @@ function decodeBubbleCheckpoint(hex: string): BubbleData {
       const [len, dataStart] = readVarint(buf, offset);
       const dataEnd = dataStart + len;
 
-      if (fieldNumber === 4 && modelName === null) {
+      if (fieldNumber === 4 && role === null) {
         const jsonStr = buf.toString('utf8', dataStart, dataEnd);
-        modelName = extractModelFromJson(jsonStr);
+        const extracted = extractRoleAndModelFromJson(jsonStr);
+        role = extracted.role;
+        if (modelName === null) modelName = extracted.modelName;
       } else if (fieldNumber === 5 && contextTokens === null) {
         const nested = buf.subarray(dataStart, dataEnd);
         let nOffset = 0;
@@ -181,7 +190,7 @@ function decodeBubbleCheckpoint(hex: string): BubbleData {
     }
   }
 
-  return { modelName, contextTokens };
+  return { modelName, contextTokens, role };
 }
 
 // ─── Model name normalization ──────────────────────────────────────────────
@@ -414,18 +423,24 @@ function readComposerDataTokens({
 const RUNNING_THRESHOLD_MS = 30 * 60 * 1000;
 
 /**
- * Aggregates token counts and picks the first non-null model name
- * from all decoded bubble checkpoint blobs for a session.
+ * Aggregates token counts, picks the first non-null model name, and counts
+ * user-role bubbles (turns) from all decoded bubble checkpoint blobs for a session.
  */
-function aggregateBubbles(blobs: string[]): { totalTokens: number; model: string | null } {
+function aggregateBubbles(blobs: string[]): {
+  totalTokens: number;
+  model: string | null;
+  turns: number;
+} {
   let totalTokens = 0;
   let model: string | null = null;
+  let turns = 0;
   for (const hex of blobs) {
-    const { modelName, contextTokens } = decodeBubbleCheckpoint(hex);
+    const { modelName, contextTokens, role } = decodeBubbleCheckpoint(hex);
     if (contextTokens !== null) totalTokens += contextTokens;
     if (modelName !== null && model === null) model = modelName;
+    if (role === 'user') turns++;
   }
-  return { totalTokens, model };
+  return { totalTokens, model, turns };
 }
 
 /**
@@ -458,6 +473,7 @@ function buildCursorSession({
   rawModel,
   title,
   totalTokens,
+  turns,
   workspacePath,
 }: {
   /** Cursor's composer ID, used as the session ID */
@@ -477,6 +493,9 @@ function buildCursorSession({
 
   /** Aggregated token count across all bubble checkpoints */
   totalTokens: number;
+
+  /** Number of user-initiated turns, or null when not derivable from available data */
+  turns: number | null;
 
   /** Resolved workspace folder path, or empty string if unknown */
   workspacePath: string;
@@ -503,6 +522,7 @@ function buildCursorSession({
       cacheWrite: 0,
       isApproximate: true,
     },
+    turns,
   };
 }
 
@@ -608,6 +628,9 @@ export class CursorScanner implements SessionScanner {
 
       let totalTokens = 0;
       let model: string | null = null;
+      // Per-bubble role data is only available in the newer agentKv format —
+      // older formats have no way to derive a turn count.
+      let turns: number | null = null;
 
       const hashes = hashesBySession.get(composer.composerId);
       if (hashes && hashes.length > 0) {
@@ -618,6 +641,7 @@ export class CursorScanner implements SessionScanner {
         const agg = aggregateBubbles(blobs);
         totalTokens = agg.totalTokens;
         model = agg.model;
+        turns = agg.turns;
       } else {
         // Older bubbleId JSON format: sum tokenCount fields via BETWEEN range scan
         const bubbleTokens = readBubbleIdTokens({
@@ -643,6 +667,7 @@ export class CursorScanner implements SessionScanner {
           rawModel: model,
           title: composer.name ?? null,
           totalTokens,
+          turns,
           workspacePath: resolveWorkspacePath(composer.workspaceIdentifier),
         }),
       );

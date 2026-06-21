@@ -140,6 +140,7 @@ export class ApiClient {
       startedAt: session.startTime,
       completedAt: session.endTime ?? null,
       durationSeconds: session.durationSeconds,
+      turns: session.turns,
       tokens: {
         inputTokens: t.input,
         outputTokens: t.output,

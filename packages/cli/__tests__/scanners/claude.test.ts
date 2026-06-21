@@ -61,6 +61,7 @@ describe('ClaudeScanner', () => {
       expect(validSession.startTime).toBe('2026-06-08T14:00:00.000Z');
       expect(validSession.endTime).toBe('2026-06-08T14:01:45.000Z');
       expect(validSession.durationSeconds).toBe(105); // 1m 45s
+      expect(validSession.turns).toBe(2); // 2 user entries
     }
   });
 
@@ -78,6 +79,7 @@ describe('ClaudeScanner', () => {
       // input_tokens was "not-a-number" → caught → defaults to 0
       expect(malformed.tokens.input).toBe(0);
       expect(malformed.tokens.output).toBe(100);
+      expect(malformed.turns).toBe(1); // 1 user entry
     }
   });
 

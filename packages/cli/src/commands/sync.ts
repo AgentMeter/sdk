@@ -184,6 +184,7 @@ function resolveVanishedSessions({
         endTime: now,
         durationSeconds: null,
         tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        turns: null,
       },
     });
   }

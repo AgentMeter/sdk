@@ -185,6 +185,13 @@ function aggregateTokens(entries: JournalEntry[]): LocalSession['tokens'] {
 }
 
 /**
+ * Counts turns as the number of user-prompt entries in the session
+ */
+function countTurns(entries: JournalEntry[]): number {
+  return entries.filter((e) => e.type === 'user').length;
+}
+
+/**
  * Derives start time, end time, and duration from entry timestamps
  */
 function extractTiming(entries: JournalEntry[]): {
@@ -264,6 +271,7 @@ function buildSession({
     endTime,
     durationSeconds,
     tokens: aggregateTokens(entries),
+    turns: countTurns(entries),
   };
 }
 

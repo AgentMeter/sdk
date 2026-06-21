@@ -23,6 +23,7 @@ const mockSession: LocalSession = {
   endTime: '2026-06-08T14:03:42.000Z',
   durationSeconds: 222,
   tokens: { input: 45000, output: 8200, cacheRead: 12000, cacheWrite: 3000 },
+  turns: 4,
 };
 
 describe('ApiClient', () => {
@@ -165,6 +166,21 @@ describe('ApiClient', () => {
       const [_url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       const headers = init.headers as Record<string, string>;
       expect(headers.Authorization).toBe('Bearer am_sk_test123');
+    });
+
+    it('includes turns in the request body', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        status: 201,
+        json: async () => ({ sessionId: 'sess_abc123', costCents: 100 }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const client = new ApiClient(mockConfig);
+      await client.submitSession(mockSession);
+
+      const [_url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as { turns: number | null };
+      expect(body.turns).toBe(4);
     });
   });
 });
