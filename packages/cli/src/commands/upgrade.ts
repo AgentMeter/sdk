@@ -19,7 +19,9 @@ import { runSync } from './sync.js';
  *   agentmeter upgrade                   (global install users)
  */
 export const upgradeCommand = new Command('upgrade')
-  .description('Reinstall the background service from the current binary (use after updating the CLI)')
+  .description(
+    'Reinstall the background service from the current binary (use after updating the CLI)',
+  )
   .action(async () => {
     const platform = getPlatform();
 
