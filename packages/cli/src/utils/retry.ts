@@ -2,19 +2,19 @@
  * Configuration for exponential-backoff retry behavior
  */
 export interface RetryOptions {
-  /** Maximum number of attempts before throwing the last error */
-  maxAttempts: number;
-
   /** Initial delay in milliseconds before the first retry */
   baseDelayMs: number;
+
+  /** Maximum number of attempts before throwing the last error */
+  maxAttempts: number;
 
   /** Upper bound on the computed delay between retries */
   maxDelayMs: number;
 }
 
 const DEFAULT_OPTIONS: RetryOptions = {
-  maxAttempts: 3,
   baseDelayMs: 1000,
+  maxAttempts: 3,
   maxDelayMs: 30_000,
 };
 

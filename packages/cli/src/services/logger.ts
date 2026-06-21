@@ -71,8 +71,12 @@ function log(level: LogLevel, message: string): void {
   }
 }
 
+/**
+ * Writes timestamped log entries to the AgentMeter log file, mirroring to
+ * stdout/stderr unless foreground mode has been disabled
+ */
 export const logger = {
-  info: (message: string) => log('info', message),
-  warn: (message: string) => log('warn', message),
-  error: (message: string) => log('error', message),
+  info: (message: string): void => log('info', message),
+  warn: (message: string): void => log('warn', message),
+  error: (message: string): void => log('error', message),
 };

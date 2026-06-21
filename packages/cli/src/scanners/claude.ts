@@ -235,11 +235,20 @@ function extractStatus(entries: JournalEntry[]): LocalSession['status'] {
 /**
  * Constructs a LocalSession from a parsed JSONL entry list
  */
-function buildSession(
-  sessionId: string,
-  projectDirName: string,
-  entries: JournalEntry[],
-): LocalSession {
+function buildSession({
+  entries,
+  projectDirName,
+  sessionId,
+}: {
+  /** Parsed JSONL entries for the session */
+  entries: JournalEntry[];
+
+  /** Name of the directory under ~/.claude/projects this session was found in */
+  projectDirName: string;
+
+  /** Session ID derived from the JSONL filename */
+  sessionId: string;
+}): LocalSession {
   const cwd = entries.find((e) => e.cwd)?.cwd ?? tryDecodeProjectDir(projectDirName);
   const repoFullName = resolveRepoFullName(cwd);
   const { startTime, endTime, durationSeconds } = extractTiming(entries);
@@ -302,7 +311,7 @@ export class ClaudeScanner implements SessionScanner {
         const sessionId = path.basename(jsonlFile, '.jsonl');
         const entries = parseJsonlFile(jsonlFile);
         if (entries.length === 0) continue;
-        const session = buildSession(sessionId, projectDirName, entries);
+        const session = buildSession({ entries, projectDirName, sessionId });
         const tokens = session.tokens;
         const hasTokens = tokens.input > 0 || tokens.output > 0;
         const tooShort = session.durationSeconds !== null && session.durationSeconds < 30;

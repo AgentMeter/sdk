@@ -31,7 +31,15 @@ export function writeConfig(config: Config): void {
   fs.mkdirSync(agentMeterDir, { recursive: true });
 
   const validated = ConfigSchema.parse(config);
-  fs.writeFileSync(getConfigPath(), `${JSON.stringify(validated, null, 2)}\n`, 'utf8');
+  const configPath = getConfigPath();
+  fs.writeFileSync(configPath, `${JSON.stringify(validated, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+  // writeFileSync's mode is only applied when creating a new file — chmod
+  // explicitly so a pre-existing, more permissive file also gets locked down.
+  // This file contains the API key in plaintext.
+  fs.chmodSync(configPath, 0o600);
 }
 
 /**

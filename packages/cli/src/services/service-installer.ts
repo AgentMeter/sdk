@@ -68,7 +68,20 @@ function escapeXml(str: string): string {
  * Includes the node binary's directory in PATH so tsx shell wrappers can find node,
  * since launchd runs with a minimal environment that omits /usr/local/bin.
  */
-function generatePlist(programArgs: string[], config: Config, logPath: string): string {
+function generatePlist({
+  config,
+  logPath,
+  programArgs,
+}: {
+  /** CLI config, used to embed the API key and API URL as environment variables */
+  config: Config;
+
+  /** Path to the log file used for both stdout and stderr */
+  logPath: string;
+
+  /** Program + arguments array for the service watch command */
+  programArgs: string[];
+}): string {
   const argsXml = programArgs.map((a) => `        <string>${escapeXml(a)}</string>`).join('\n');
   const nodeBinDir = path.dirname(process.execPath);
   const servicePath = `${nodeBinDir}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
@@ -107,7 +120,16 @@ ${argsXml}
 /**
  * Generates the systemd unit file content for the agentmeter sync service
  */
-function generateSystemdUnit(programArgs: string[], config: Config): string {
+function generateSystemdUnit({
+  config,
+  programArgs,
+}: {
+  /** CLI config, used to embed the API key and API URL as environment variables */
+  config: Config;
+
+  /** Program + arguments array for the service watch command */
+  programArgs: string[];
+}): string {
   return `[Unit]
 Description=AgentMeter Session Sync
 
@@ -136,8 +158,11 @@ export function installMacos(config: Config): void {
   fs.mkdirSync(logDir, { recursive: true });
   fs.mkdirSync(path.dirname(plistPath), { recursive: true });
 
-  const plist = generatePlist(programArgs, config, logPath);
-  fs.writeFileSync(plistPath, plist, 'utf8');
+  const plist = generatePlist({ config, logPath, programArgs });
+  // mode 0600 + explicit chmod — this file embeds the API key in plaintext, and
+  // writeFileSync's mode is only applied when creating a new file, not on overwrite.
+  fs.writeFileSync(plistPath, plist, { encoding: 'utf8', mode: 0o600 });
+  fs.chmodSync(plistPath, 0o600);
 
   // Unload first in case it was previously installed
   spawnSync('launchctl', ['unload', plistPath]);
@@ -167,8 +192,11 @@ export function installLinux(config: Config): void {
 
   fs.mkdirSync(path.dirname(servicePath), { recursive: true });
 
-  const unit = generateSystemdUnit(programArgs, config);
-  fs.writeFileSync(servicePath, unit, 'utf8');
+  const unit = generateSystemdUnit({ config, programArgs });
+  // mode 0600 + explicit chmod — this file embeds the API key in plaintext, and
+  // writeFileSync's mode is only applied when creating a new file, not on overwrite.
+  fs.writeFileSync(servicePath, unit, { encoding: 'utf8', mode: 0o600 });
+  fs.chmodSync(servicePath, 0o600);
 
   spawnSync('systemctl', ['--user', 'daemon-reload']);
   spawnSync('systemctl', ['--user', 'enable', SYSTEMD_SERVICE]);

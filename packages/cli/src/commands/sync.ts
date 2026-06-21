@@ -15,48 +15,48 @@ import { formatCost, formatDuration } from '../utils/format.js';
  * Runtime options for a sync run, controlling output and filtering
  */
 export interface SyncOptions {
-  /** Whether to print a row for every session processed */
-  verbose: boolean;
-
   /** When true, reports what would be submitted without sending any data */
   dryRun: boolean;
+
+  /** Scanner name filter (e.g. "claude"); omit to include all available scanners */
+  engine?: string;
 
   /** ISO 8601 date string; only sessions starting on or after this date are included */
   since?: string;
 
-  /** Scanner name filter (e.g. "claude"); omit to include all available scanners */
-  engine?: string;
+  /** Whether to print a row for every session processed */
+  verbose: boolean;
 }
 
 /**
  * Aggregated counts and cost totals returned from a completed sync run
  */
 export interface SyncResult {
+  /** Number of sessions that failed to submit */
+  errorCount: number;
+
   /** Number of sessions submitted for the first time */
   newCount: number;
-
-  /** Number of sessions re-submitted because their status or endTime changed */
-  updatedCount: number;
 
   /** Number of sessions that were already up-to-date and skipped */
   skippedCount: number;
 
-  /** Number of sessions that failed to submit */
-  errorCount: number;
-
   /** Sum of costCents across all successfully submitted sessions */
   totalCostCents: number;
+
+  /** Number of sessions re-submitted because their status or endTime changed */
+  updatedCount: number;
 }
 
 /**
  * Sessions split into those needing submission and those already up-to-date
  */
 interface SessionClassification {
-  /** Sessions to submit, tagged with whether they are new or just updated */
-  toSync: Array<{ session: LocalSession; isNew: boolean }>;
-
   /** Sessions that match their already-synced state and can be skipped */
   skipped: LocalSession[];
+
+  /** Sessions to submit, tagged with whether they are new or just updated */
+  toSync: Array<{ isNew: boolean; session: LocalSession }>;
 }
 
 /**
@@ -83,37 +83,57 @@ async function gatherSessions(opts: SyncOptions): Promise<LocalSession[]> {
   return allSessions.filter((s) => new Date(s.startTime) >= sinceDate);
 }
 
+// Sessions stuck as RUNNING longer than this are force-completed. The Cursor
+// SQLite DB refreshes `lastUpdatedAt` on any access (not just new messages),
+// so sessions remain "running" indefinitely if the user opens them in the UI.
+const STALE_RUNNING_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+/**
+ * Returns true if a session last submitted as RUNNING has been stuck in that
+ * state longer than STALE_RUNNING_THRESHOLD_MS
+ */
+function isStaleRunning(submittedAt: string | undefined): boolean {
+  if (!submittedAt) return false;
+  return Date.now() - new Date(submittedAt).getTime() > STALE_RUNNING_THRESHOLD_MS;
+}
+
 /**
  * Splits sessions into those needing submission and those already up-to-date
  */
-function classifySessions(sessions: LocalSession[], syncState: SyncState): SessionClassification {
-  const toSync: Array<{ session: LocalSession; isNew: boolean }> = [];
+function classifySessions({
+  sessions,
+  syncState,
+}: {
+  /** Sessions discovered by the current scan */
+  sessions: LocalSession[];
+
+  /** Previously persisted sync state used to detect new/changed/unchanged sessions */
+  syncState: SyncState;
+}): SessionClassification {
+  const toSync: Array<{ isNew: boolean; session: LocalSession }> = [];
   const skipped: LocalSession[] = [];
-  const now = Date.now();
 
   for (let session of sessions) {
     const existing = syncState.sessions[session.sessionId];
 
     // If the scanner still reports RUNNING but we've been tracking it as RUNNING
-    // for more than 4 hours, force it to success. The Cursor SQLite DB refreshes
-    // lastUpdatedAt on any UI access, so sessions stay "running" indefinitely.
+    // for too long, force it to success — see STALE_RUNNING_THRESHOLD_MS above.
     if (
       session.status === 'running' &&
       existing?.status === 'running' &&
-      existing.submittedAt &&
-      now - new Date(existing.submittedAt).getTime() > STALE_RUNNING_THRESHOLD_MS
+      isStaleRunning(existing.submittedAt)
     ) {
       session = { ...session, status: 'success', endTime: new Date().toISOString() };
     }
 
     if (!existing) {
-      toSync.push({ session, isNew: true });
+      toSync.push({ isNew: true, session });
     } else if (
       existing.status !== session.status ||
       existing.endTime !== (session.endTime ?? null) ||
       (existing.title ?? null) !== (session.title ?? null)
     ) {
-      toSync.push({ session, isNew: false });
+      toSync.push({ isNew: false, session });
     } else {
       skipped.push(session);
     }
@@ -129,25 +149,25 @@ function classifySessions(sessions: LocalSession[], syncState: SyncState): Sessi
  * Only called during full scans (no --engine or --since filter) to avoid false positives from
  * partial scan results.
  */
-// Sessions stuck as RUNNING longer than this are force-completed. The Cursor
-// SQLite DB refreshes `lastUpdatedAt` on any access (not just new messages),
-// so sessions remain "running" indefinitely if the user opens them in the UI.
-const STALE_RUNNING_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 hours
+function resolveVanishedSessions({
+  scannedIds,
+  syncState,
+}: {
+  /** Session IDs found in the current scan, used to detect vanished sessions */
+  scannedIds: Set<string>;
 
-function resolveVanishedSessions(
-  scannedIds: Set<string>,
-  syncState: SyncState,
-): Array<{ session: LocalSession; isNew: boolean }> {
+  /** Previously persisted sync state to scan for stale or vanished RUNNING entries */
+  syncState: SyncState;
+}): Array<{ isNew: boolean; session: LocalSession }> {
   const now = new Date().toISOString();
-  const vanished: Array<{ session: LocalSession; isNew: boolean }> = [];
+  const vanished: Array<{ isNew: boolean; session: LocalSession }> = [];
 
   for (const [sessionId, stored] of Object.entries(syncState.sessions)) {
     if (stored.status !== 'running') continue;
     if (!stored.repoFullName) continue;
 
     const isVanished = !scannedIds.has(sessionId);
-    const submittedAt = stored.submittedAt ? new Date(stored.submittedAt).getTime() : 0;
-    const isStale = submittedAt > 0 && Date.now() - submittedAt > STALE_RUNNING_THRESHOLD_MS;
+    const isStale = isStaleRunning(stored.submittedAt);
 
     if (!isVanished && !isStale) continue;
 
@@ -174,8 +194,8 @@ function resolveVanishedSessions(
 /**
  * Prints a dry-run summary listing what would be submitted without sending anything
  */
-function printDryRun(toSync: Array<{ session: LocalSession; isNew: boolean }>): void {
-  for (const { session, isNew } of toSync) {
+function printDryRun(toSync: Array<{ isNew: boolean; session: LocalSession }>): void {
+  for (const { isNew, session } of toSync) {
     const action = isNew ? 'Would submit' : 'Would update';
     const label = isNew ? 'new' : `updated: ${session.status}`;
     console.log(
@@ -190,7 +210,20 @@ function printDryRun(toSync: Array<{ session: LocalSession; isNew: boolean }>): 
 /**
  * Prints a single verbose row for a submitted session
  */
-function printVerboseRow(session: LocalSession, result: SubmitResult, isNew: boolean): void {
+function printVerboseRow({
+  isNew,
+  result,
+  session,
+}: {
+  /** Whether the session was newly created (true) or just updated (false) */
+  isNew: boolean;
+
+  /** The API response for the submitted session */
+  result: SubmitResult;
+
+  /** The session that was submitted */
+  session: LocalSession;
+}): void {
   const label = isNew ? pc.green('[new]') : pc.yellow('[updated]');
   const cost = result.costCents ? formatCost(result.costCents) : '—';
   console.log(
@@ -201,18 +234,35 @@ function printVerboseRow(session: LocalSession, result: SubmitResult, isNew: boo
 /**
  * Submits all pending sessions to the API and updates sync state in place
  */
-async function submitAll(
-  toSync: Array<{ session: LocalSession; isNew: boolean }>,
-  api: ApiClient,
-  syncState: SyncState,
-  verbose: boolean,
-): Promise<{ newCount: number; updatedCount: number; errorCount: number; totalCostCents: number }> {
+async function submitAll({
+  api,
+  syncState,
+  toSync,
+  verbose,
+}: {
+  /** Client used to submit each session */
+  api: ApiClient;
+
+  /** Mutated in place with the outcome of each submission */
+  syncState: SyncState;
+
+  /** Sessions to submit, tagged with whether they are new or just updated */
+  toSync: Array<{ isNew: boolean; session: LocalSession }>;
+
+  /** Whether to print a row for every session processed */
+  verbose: boolean;
+}): Promise<{
+  errorCount: number;
+  newCount: number;
+  totalCostCents: number;
+  updatedCount: number;
+}> {
   let newCount = 0;
   let updatedCount = 0;
   let errorCount = 0;
   let totalCostCents = 0;
 
-  for (const { session, isNew } of toSync) {
+  for (const { isNew, session } of toSync) {
     const result = await api.submitSession(session).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
       console.error(pc.red(`\nError: ${message}`));
@@ -249,22 +299,37 @@ async function submitAll(
       updatedCount++;
     }
 
-    if (verbose) printVerboseRow(session, result, isNew);
+    if (verbose) printVerboseRow({ isNew, result, session });
   }
 
-  return { newCount, updatedCount, errorCount, totalCostCents };
+  return { errorCount, newCount, totalCostCents, updatedCount };
 }
 
 /**
  * Prints the final sync summary line with counts and total cost
  */
-function printSummary(
-  newCount: number,
-  updatedCount: number,
-  skipped: LocalSession[],
-  totalCostCents: number,
-  verbose: boolean,
-): void {
+function printSummary({
+  newCount,
+  skipped,
+  totalCostCents,
+  updatedCount,
+  verbose,
+}: {
+  /** Number of sessions submitted for the first time */
+  newCount: number;
+
+  /** Sessions that were already up-to-date and skipped */
+  skipped: LocalSession[];
+
+  /** Sum of costCents across all successfully submitted sessions */
+  totalCostCents: number;
+
+  /** Number of sessions re-submitted because their status or endTime changed */
+  updatedCount: number;
+
+  /** Whether to print a row for every skipped session */
+  verbose: boolean;
+}): void {
   if (verbose) {
     for (const session of skipped) {
       console.log(
@@ -290,7 +355,7 @@ function printSummary(
  * Runs a full scan-and-submit sync cycle, respecting dry-run and filter options
  */
 export async function runSync(options: Partial<SyncOptions> = {}): Promise<SyncResult> {
-  const opts: SyncOptions = { verbose: false, dryRun: false, ...options };
+  const opts: SyncOptions = { dryRun: false, verbose: false, ...options };
 
   const config = getEffectiveConfig();
   if (!config) {
@@ -300,28 +365,28 @@ export async function runSync(options: Partial<SyncOptions> = {}): Promise<SyncR
 
   const sessions = await gatherSessions(opts);
   const syncState = readSyncState();
-  const { toSync, skipped } = classifySessions(sessions, syncState);
+  const { toSync, skipped } = classifySessions({ sessions, syncState });
 
   // On full scans (no engine/since filter), close out any RUNNING sessions that have
   // vanished from disk — e.g. project deleted or Cursor window closed.
   if (!opts.engine && !opts.since) {
     const scannedIds = new Set(sessions.map((s) => s.sessionId));
-    toSync.push(...resolveVanishedSessions(scannedIds, syncState));
+    toSync.push(...resolveVanishedSessions({ scannedIds, syncState }));
   }
 
   if (sessions.length === 0 && toSync.length === 0) {
     console.log(pc.yellow('No supported AI coding agents found on this machine.'));
-    return { newCount: 0, updatedCount: 0, skippedCount: 0, errorCount: 0, totalCostCents: 0 };
+    return { errorCount: 0, newCount: 0, skippedCount: 0, totalCostCents: 0, updatedCount: 0 };
   }
 
   if (opts.dryRun) {
     printDryRun(toSync);
     return {
-      newCount: toSync.filter((s) => s.isNew).length,
-      updatedCount: toSync.filter((s) => !s.isNew).length,
-      skippedCount: skipped.length,
       errorCount: 0,
+      newCount: toSync.filter((s) => s.isNew).length,
+      skippedCount: skipped.length,
       totalCostCents: 0,
+      updatedCount: toSync.filter((s) => !s.isNew).length,
     };
   }
 
@@ -330,31 +395,31 @@ export async function runSync(options: Partial<SyncOptions> = {}): Promise<SyncR
       pc.green('✓ All sessions up to date') + pc.dim(` (${skipped.length} already synced)`),
     );
     return {
-      newCount: 0,
-      updatedCount: 0,
-      skippedCount: skipped.length,
       errorCount: 0,
+      newCount: 0,
+      skippedCount: skipped.length,
       totalCostCents: 0,
+      updatedCount: 0,
     };
   }
 
   const api = new ApiClient(config);
-  const { newCount, updatedCount, errorCount, totalCostCents } = await submitAll(
-    toSync,
+  const { errorCount, newCount, totalCostCents, updatedCount } = await submitAll({
     api,
     syncState,
-    opts.verbose,
-  );
+    toSync,
+    verbose: opts.verbose,
+  });
 
   syncState.lastSyncAt = new Date().toISOString();
   writeSyncState(syncState);
 
-  printSummary(newCount, updatedCount, skipped, totalCostCents, opts.verbose);
+  printSummary({ newCount, skipped, totalCostCents, updatedCount, verbose: opts.verbose });
   logger.info(
     `Sync complete: ${newCount} new, ${updatedCount} updated, ${skipped.length} skipped, ${errorCount} errors`,
   );
 
-  return { newCount, updatedCount, skippedCount: skipped.length, errorCount, totalCostCents };
+  return { errorCount, newCount, skippedCount: skipped.length, totalCostCents, updatedCount };
 }
 
 export const syncCommand = new Command('sync')
@@ -364,7 +429,7 @@ export const syncCommand = new Command('sync')
   .option('--since <date>', 'only sessions after this date (ISO 8601)')
   .option('--engine <name>', 'filter to a specific scanner (e.g. claude)')
   .action(
-    async (options: { verbose: boolean; dryRun: boolean; since?: string; engine?: string }) => {
+    async (options: { dryRun: boolean; engine?: string; since?: string; verbose: boolean }) => {
       try {
         await runSync(options);
       } catch (err) {

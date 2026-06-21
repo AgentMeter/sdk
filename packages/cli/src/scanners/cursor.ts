@@ -70,6 +70,9 @@ interface BubbleData {
 /**
  * Reads a protobuf varint from buf starting at pos.
  * Returns [value, nextPos]. Safe for values up to 2^53.
+ *
+ * Positional params are kept here (rather than an object) since this runs in the
+ * hot loop of decodeBubbleCheckpoint, called once per protobuf field per session.
  */
 function readVarint(buf: Buffer, pos: number): [value: number, nextPos: number] {
   let result = 0;
@@ -236,7 +239,16 @@ function getGlobalDbPath(): string {
  * Opens a SQLite DB at the given path. Returns null if the file doesn't exist
  * or cannot be opened (e.g. locked by Cursor).
  */
-function openDb(DbClass: typeof DatabaseSync, dbPath: string): DatabaseSync | null {
+function openDb({
+  DbClass,
+  dbPath,
+}: {
+  /** SQLite database class constructor, loaded at runtime via createRequire */
+  DbClass: typeof DatabaseSync;
+
+  /** Filesystem path to the SQLite database file */
+  dbPath: string;
+}): DatabaseSync | null {
   try {
     return new DbClass(dbPath);
   } catch {
@@ -247,7 +259,16 @@ function openDb(DbClass: typeof DatabaseSync, dbPath: string): DatabaseSync | nu
 /**
  * Reads a single text value from ItemTable by key. Returns null if missing or on error.
  */
-function readItemTableValue(db: DatabaseSync, key: string): string | null {
+function readItemTableValue({
+  db,
+  key,
+}: {
+  /** Open SQLite database connection */
+  db: DatabaseSync;
+
+  /** ItemTable key to read */
+  key: string;
+}): string | null {
   try {
     const stmt = db.prepare('SELECT value FROM ItemTable WHERE key = ?');
     const row = stmt.get(key) as Record<string, unknown> | undefined;
@@ -299,10 +320,16 @@ function readAllBubbleHashesBySession(db: DatabaseSync): Map<string, string[]> {
  * storage format. Uses a BETWEEN range scan (O(log n)) rather than LIKE (O(n table scan)).
  * Returns null when the session has no token data in this format.
  */
-function readBubbleIdTokens(
-  stmt: ReturnType<DatabaseSync['prepare']>,
-  composerId: string,
-): { input: number; output: number } | null {
+function readBubbleIdTokens({
+  composerId,
+  stmt,
+}: {
+  /** Composer (session) ID to look up token totals for */
+  composerId: string;
+
+  /** Prepared BETWEEN range-scan statement over cursorDiskKV */
+  stmt: ReturnType<DatabaseSync['prepare']>;
+}): { input: number; output: number } | null {
   try {
     const lo = `bubbleId:${composerId}:`;
     const hi = `bubbleId:${composerId}:￿`;
@@ -319,7 +346,16 @@ function readBubbleIdTokens(
  * Fetches the hex-encoded protobuf blobs for all content hashes in a single batch query.
  * Returns a Map from hash to blob hex string.
  */
-function readAllBlobs(db: DatabaseSync, hashes: string[]): Map<string, string> {
+function readAllBlobs({
+  db,
+  hashes,
+}: {
+  /** Open SQLite database connection */
+  db: DatabaseSync;
+
+  /** Content hashes (SHA256) to fetch blobs for */
+  hashes: string[];
+}): Map<string, string> {
   const result = new Map<string, string>();
   if (hashes.length === 0) return result;
   try {
@@ -347,7 +383,16 @@ function readAllBlobs(db: DatabaseSync, hashes: string[]): Map<string, string> {
  * when neither the agentKv protobuf nor the older bubbleId JSON format has data.
  * Returns null if the entry is missing or contextTokensUsed is zero.
  */
-function readComposerDataTokens(db: DatabaseSync, composerId: string): number | null {
+function readComposerDataTokens({
+  composerId,
+  db,
+}: {
+  /** Composer (session) ID to look up the final context-window size for */
+  composerId: string;
+
+  /** Open SQLite database connection */
+  db: DatabaseSync;
+}): number | null {
   try {
     const row = db
       .prepare('SELECT value FROM cursorDiskKV WHERE key = ?')
@@ -408,20 +453,33 @@ function resolveWorkspacePath(wsId: z.infer<typeof WorkspaceIdentifierSchema> | 
  */
 function buildCursorSession({
   composerId,
-  title,
   createdAt,
   lastUpdatedAt,
-  workspacePath,
-  totalTokens,
   rawModel,
+  title,
+  totalTokens,
+  workspacePath,
 }: {
+  /** Cursor's composer ID, used as the session ID */
   composerId: string;
-  title: string | null;
+
+  /** Unix milliseconds the session was created */
   createdAt: number;
+
+  /** Unix milliseconds the session was last updated */
   lastUpdatedAt: number;
-  workspacePath: string;
-  totalTokens: number;
+
+  /** Raw Cursor model name, normalized before use */
   rawModel: string | null;
+
+  /** AI-generated session title */
+  title: string | null;
+
+  /** Aggregated token count across all bubble checkpoints */
+  totalTokens: number;
+
+  /** Resolved workspace folder path, or empty string if unknown */
+  workspacePath: string;
 }): LocalSession {
   const startTime = new Date(createdAt).toISOString();
   const endTime = new Date(lastUpdatedAt).toISOString();
@@ -489,7 +547,7 @@ export class CursorScanner implements SessionScanner {
       return [];
     }
 
-    const globalDb = openDb(DatabaseSync, getGlobalDbPath());
+    const globalDb = openDb({ DbClass: DatabaseSync, dbPath: getGlobalDbPath() });
     if (!globalDb) {
       logger.warn('Cursor global DB unavailable — skipping Cursor scan');
       return [];
@@ -513,7 +571,7 @@ export class CursorScanner implements SessionScanner {
    * range scans for the older format (BETWEEN uses the B-tree index; LIKE does not).
    */
   private _scanWithDb(globalDb: DatabaseSync): LocalSession[] {
-    const headersRaw = readItemTableValue(globalDb, 'composer.composerHeaders');
+    const headersRaw = readItemTableValue({ db: globalDb, key: 'composer.composerHeaders' });
     if (!headersRaw) return [];
 
     let parsedHeaders: z.infer<typeof ComposerHeadersSchema>;
@@ -528,7 +586,7 @@ export class CursorScanner implements SessionScanner {
     // Newer format: batch load all agentKv bubble checkpoints and blobs.
     const hashesBySession = readAllBubbleHashesBySession(globalDb);
     const allHashes = [...hashesBySession.values()].flat();
-    const blobByHash = readAllBlobs(globalDb, allHashes);
+    const blobByHash = readAllBlobs({ db: globalDb, hashes: allHashes });
 
     // Older format: prepared statement for per-session BETWEEN range scan.
     const bubbleIdStmt = globalDb.prepare(`
@@ -562,12 +620,16 @@ export class CursorScanner implements SessionScanner {
         model = agg.model;
       } else {
         // Older bubbleId JSON format: sum tokenCount fields via BETWEEN range scan
-        const bubbleTokens = readBubbleIdTokens(bubbleIdStmt, composer.composerId);
+        const bubbleTokens = readBubbleIdTokens({
+          composerId: composer.composerId,
+          stmt: bubbleIdStmt,
+        });
         if (bubbleTokens) {
           totalTokens = bubbleTokens.input + bubbleTokens.output;
         } else {
           // Newest format: contextTokensUsed in composerData (final context-window size)
-          totalTokens = readComposerDataTokens(globalDb, composer.composerId) ?? 0;
+          totalTokens =
+            readComposerDataTokens({ composerId: composer.composerId, db: globalDb }) ?? 0;
         }
       }
 
@@ -576,12 +638,12 @@ export class CursorScanner implements SessionScanner {
       sessions.push(
         buildCursorSession({
           composerId: composer.composerId,
-          title: composer.name ?? null,
           createdAt: composer.createdAt,
           lastUpdatedAt: composer.lastUpdatedAt ?? composer.createdAt,
-          workspacePath: resolveWorkspacePath(composer.workspaceIdentifier),
-          totalTokens,
           rawModel: model,
+          title: composer.name ?? null,
+          totalTokens,
+          workspacePath: resolveWorkspacePath(composer.workspaceIdentifier),
         }),
       );
     }

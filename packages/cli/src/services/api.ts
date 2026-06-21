@@ -8,17 +8,17 @@ import { logger } from './logger.js';
  * Outcome of submitting a single session to POST /api/ingest/local
  */
 export interface SubmitResult {
-  /** The session ID that was submitted */
-  sessionId: string;
-
   /** Cost in cents returned by the API, or null if not yet calculated */
   costCents: number | null;
 
-  /** Whether the session was newly created, updated, a duplicate, or failed */
-  status: 'created' | 'updated' | 'duplicate' | 'error';
-
   /** Error message when status is 'error' */
   error?: string;
+
+  /** The session ID that was submitted */
+  sessionId: string;
+
+  /** Whether the session was newly created, updated, a duplicate, or failed */
+  status: 'created' | 'updated' | 'duplicate' | 'error';
 }
 
 /**
@@ -35,8 +35,8 @@ export interface PingResult {
  * Outcome of validating an API key against GET /api/auth/me
  */
 export interface ValidateKeyResult {
-  /** Whether the key was accepted by the API */
-  valid: boolean;
+  /** Whether the key is scoped to a personal user or an org, or null if unknown */
+  keyType: 'personal' | 'org' | null;
 
   /** Organization name associated with the key, or null */
   orgName: string | null;
@@ -44,8 +44,8 @@ export interface ValidateKeyResult {
   /** User display name associated with the key, or null */
   userName: string | null;
 
-  /** Whether the key is scoped to a personal user or an org, or null if unknown */
-  keyType: 'personal' | 'org' | null;
+  /** Whether the key was accepted by the API */
+  valid: boolean;
 }
 
 /**
@@ -96,30 +96,30 @@ export class ApiClient {
         },
       });
     } catch {
-      return { valid: false, orgName: null, userName: null, keyType: null };
+      return { keyType: null, orgName: null, userName: null, valid: false };
     }
 
     if (response.status === 401) {
-      return { valid: false, orgName: null, userName: null, keyType: null };
+      return { keyType: null, orgName: null, userName: null, valid: false };
     }
 
     let data: unknown;
     try {
       data = await response.json();
     } catch {
-      return { valid: false, orgName: null, userName: null, keyType: null };
+      return { keyType: null, orgName: null, userName: null, valid: false };
     }
 
     const result = ValidateKeyResponseSchema.safeParse(data);
     if (!result.success) {
-      return { valid: false, orgName: null, userName: null, keyType: null };
+      return { keyType: null, orgName: null, userName: null, valid: false };
     }
 
     return {
-      valid: result.data.valid,
+      keyType: result.data.keyType ?? null,
       orgName: result.data.orgName ?? null,
       userName: result.data.userName ?? null,
-      keyType: result.data.keyType ?? null,
+      valid: result.data.valid,
     };
   }
 
@@ -140,15 +140,13 @@ export class ApiClient {
       startedAt: session.startTime,
       completedAt: session.endTime ?? null,
       durationSeconds: session.durationSeconds,
-      tokens: t
-        ? {
-            inputTokens: t.input,
-            outputTokens: t.output,
-            cacheReadTokens: t.cacheRead,
-            cacheWriteTokens: t.cacheWrite,
-            isApproximate: t.isApproximate ?? false,
-          }
-        : null,
+      tokens: {
+        inputTokens: t.input,
+        outputTokens: t.output,
+        cacheReadTokens: t.cacheRead,
+        cacheWriteTokens: t.cacheWrite,
+        isApproximate: t.isApproximate ?? false,
+      },
     };
 
     const makeRequest = async (): Promise<Response> => {
@@ -175,7 +173,7 @@ export class ApiClient {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Network error';
       logger.error(`Failed to submit session ${session.sessionId}: ${message}`);
-      return { sessionId: session.sessionId, costCents: null, status: 'error', error: message };
+      return { costCents: null, error: message, sessionId: session.sessionId, status: 'error' };
     }
 
     if (response.status === 401) {
@@ -183,16 +181,16 @@ export class ApiClient {
     }
 
     if (response.status === 409) {
-      return { sessionId: session.sessionId, costCents: null, status: 'duplicate' };
+      return { costCents: null, sessionId: session.sessionId, status: 'duplicate' };
     }
 
     if (response.status === 404) {
       logger.error(`Session ${session.sessionId} rejected: repo not found on server`);
       return {
-        sessionId: session.sessionId,
         costCents: null,
-        status: 'error',
         error: 'Repo not found',
+        sessionId: session.sessionId,
+        status: 'error',
       };
     }
 
@@ -209,13 +207,13 @@ export class ApiClient {
         // Ignore parse error, use default message
       }
       logger.error(`Session ${session.sessionId} rejected: ${errorMsg}`);
-      return { sessionId: session.sessionId, costCents: null, status: 'error', error: errorMsg };
+      return { costCents: null, error: errorMsg, sessionId: session.sessionId, status: 'error' };
     }
 
     if (response.status >= 500) {
       const message = `Server error: ${response.status}`;
       logger.error(`Failed to submit session ${session.sessionId}: ${message}`);
-      return { sessionId: session.sessionId, costCents: null, status: 'error', error: message };
+      return { costCents: null, error: message, sessionId: session.sessionId, status: 'error' };
     }
 
     let costCents: number | null = null;
@@ -230,8 +228,8 @@ export class ApiClient {
     }
 
     return {
-      sessionId: session.sessionId,
       costCents,
+      sessionId: session.sessionId,
       status: response.status === 201 ? 'created' : 'updated',
     };
   }

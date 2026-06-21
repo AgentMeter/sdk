@@ -13,7 +13,16 @@ import { getConfigPath, getLogPath } from '../utils/platform.js';
 /**
  * Prints a padded label/value row for the status display
  */
-function row(label: string, value: string): void {
+function row({
+  label,
+  value,
+}: {
+  /** Field name shown on the left, e.g. "Service" */
+  label: string;
+
+  /** Field value shown on the right, may include color codes */
+  value: string;
+}): void {
   const pad = 12;
   const paddedLabel = `${label}:`.padEnd(pad);
   console.log(`  ${pc.dim(paddedLabel)} ${value}`);
@@ -46,10 +55,10 @@ export const statusCommand = new Command('status')
     } else {
       serviceLabel = pc.red('✗ Not installed') + pc.dim(' (run `npx @agentmeter/cli install`)');
     }
-    row('Service', serviceLabel);
+    row({ label: 'Service', value: serviceLabel });
 
     if (!config) {
-      row('API key', pc.red('✗ Not configured (run `agentmeter init`)'));
+      row({ label: 'API key', value: pc.red('✗ Not configured (run `agentmeter init`)') });
       console.log();
       process.exit(0);
     }
@@ -73,14 +82,14 @@ export const statusCommand = new Command('status')
       keyLabel = pc.yellow('— Could not validate (offline?)');
     }
 
-    row('API key', keyLabel);
-    if (orgName) row('Org', orgName);
-    if (userName) row('User', userName);
-    row('Device', config.deviceName ?? os.hostname());
+    row({ label: 'API key', value: keyLabel });
+    if (orgName) row({ label: 'Org', value: orgName });
+    if (userName) row({ label: 'User', value: userName });
+    row({ label: 'Device', value: config.deviceName ?? os.hostname() });
 
     // Session counts
     const sessionLabel = `${sessionCount} synced${pendingCount > 0 ? `, ${pendingCount} pending` : ''}`;
-    row('Sessions', sessionLabel);
+    row({ label: 'Sessions', value: sessionLabel });
 
     // Scanner info
     const claudeScanner = new ClaudeScanner();
@@ -88,15 +97,15 @@ export const statusCommand = new Command('status')
     if (claudeAvailable) {
       try {
         const claudeSessions = await claudeScanner.scan();
-        row(
-          'Claude Code',
-          pc.green('✓ Scanning') + pc.dim(` (${claudeSessions.length} sessions found)`),
-        );
+        row({
+          label: 'Claude Code',
+          value: pc.green('✓ Scanning') + pc.dim(` (${claudeSessions.length} sessions found)`),
+        });
       } catch {
-        row('Claude Code', pc.yellow('⚠ Available but scan failed'));
+        row({ label: 'Claude Code', value: pc.yellow('⚠ Available but scan failed') });
       }
     } else {
-      row('Claude Code', pc.dim('— ~/.claude not found'));
+      row({ label: 'Claude Code', value: pc.dim('— ~/.claude not found') });
     }
 
     const cursorScanner = new CursorScanner();
@@ -104,21 +113,21 @@ export const statusCommand = new Command('status')
     if (cursorAvailable) {
       try {
         const cursorSessions = await cursorScanner.scan();
-        row(
-          'Cursor',
-          pc.green('✓ Scanning') + pc.dim(` (${cursorSessions.length} sessions found)`),
-        );
+        row({
+          label: 'Cursor',
+          value: pc.green('✓ Scanning') + pc.dim(` (${cursorSessions.length} sessions found)`),
+        });
       } catch {
-        row('Cursor', pc.yellow('⚠ Available but scan failed'));
+        row({ label: 'Cursor', value: pc.yellow('⚠ Available but scan failed') });
       }
     } else {
-      row('Cursor', pc.dim('— Cursor not found'));
+      row({ label: 'Cursor', value: pc.dim('— Cursor not found') });
     }
 
     // Paths
-    row('Config', pc.dim(getConfigPath()));
+    row({ label: 'Config', value: pc.dim(getConfigPath()) });
     if (installed) {
-      row('Logs', pc.dim(getLogPath()));
+      row({ label: 'Logs', value: pc.dim(getLogPath()) });
     }
 
     console.log();
