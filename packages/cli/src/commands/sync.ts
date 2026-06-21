@@ -115,6 +115,11 @@ function classifySessions(sessions: LocalSession[], syncState: SyncState): Sessi
  * Only called during full scans (no --engine or --since filter) to avoid false positives from
  * partial scan results.
  */
+// Sessions stuck as RUNNING longer than this are force-completed. The Cursor
+// SQLite DB refreshes `lastUpdatedAt` on any access (not just new messages),
+// so sessions remain "running" indefinitely if the user opens them in the UI.
+const STALE_RUNNING_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 hours
+
 function resolveVanishedSessions(
   scannedIds: Set<string>,
   syncState: SyncState,
@@ -124,8 +129,13 @@ function resolveVanishedSessions(
 
   for (const [sessionId, stored] of Object.entries(syncState.sessions)) {
     if (stored.status !== 'running') continue;
-    if (scannedIds.has(sessionId)) continue;
     if (!stored.repoFullName) continue;
+
+    const isVanished = !scannedIds.has(sessionId);
+    const submittedAt = stored.submittedAt ? new Date(stored.submittedAt).getTime() : 0;
+    const isStale = submittedAt > 0 && Date.now() - submittedAt > STALE_RUNNING_THRESHOLD_MS;
+
+    if (!isVanished && !isStale) continue;
 
     vanished.push({
       isNew: false,
