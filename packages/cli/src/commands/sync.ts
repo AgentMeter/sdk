@@ -89,9 +89,23 @@ async function gatherSessions(opts: SyncOptions): Promise<LocalSession[]> {
 function classifySessions(sessions: LocalSession[], syncState: SyncState): SessionClassification {
   const toSync: Array<{ session: LocalSession; isNew: boolean }> = [];
   const skipped: LocalSession[] = [];
+  const now = Date.now();
 
-  for (const session of sessions) {
+  for (let session of sessions) {
     const existing = syncState.sessions[session.sessionId];
+
+    // If the scanner still reports RUNNING but we've been tracking it as RUNNING
+    // for more than 4 hours, force it to success. The Cursor SQLite DB refreshes
+    // lastUpdatedAt on any UI access, so sessions stay "running" indefinitely.
+    if (
+      session.status === 'running' &&
+      existing?.status === 'running' &&
+      existing.submittedAt &&
+      now - new Date(existing.submittedAt).getTime() > STALE_RUNNING_THRESHOLD_MS
+    ) {
+      session = { ...session, status: 'success', endTime: new Date().toISOString() };
+    }
+
     if (!existing) {
       toSync.push({ session, isNew: true });
     } else if (
