@@ -12,7 +12,7 @@
     "test": "turbo run test",
     "test:watch": "turbo run test:watch",
     "prepare": "npx simple-git-hooks",
-    "precommit": "pnpm biome check --write . && pnpm typecheck && pnpm test",
+    "precommit": "pnpm biome check --write . && git add -u && pnpm typecheck && pnpm test",
     "cli": "tsx packages/cli/src/index.ts"
   },
   "devDependencies": {

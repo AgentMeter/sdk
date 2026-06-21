@@ -2,9 +2,7 @@ import { Command } from 'commander';
 import pc from 'picocolors';
 import { getEffectiveConfig } from '../services/config.js';
 import { installLinux, installMacos } from '../services/service-installer.js';
-import { getLogPath } from '../utils/platform.js';
-import { getPlatform } from '../utils/platform.js';
-import { runSync } from './sync.js';
+import { getLogPath, getPlatform } from '../utils/platform.js';
 
 export const installCommand = new Command('install')
   .description('Install AgentMeter as a background service')
@@ -38,12 +36,9 @@ export const installCommand = new Command('install')
         installLinux(config);
       }
 
-      console.log('\nRunning initial sync...');
-      await runSync({ verbose: false });
-
       const logPath = getLogPath();
       console.log(`\n${pc.green('✓ AgentMeter service installed')}`);
-      console.log('  Syncing every 5 minutes in the background.');
+      console.log('  First sync will run within 5 minutes.');
       console.log('  Runs on login, survives reboots.');
       console.log(`  Logs: ${pc.dim(logPath)}\n`);
       console.log(`  Run ${pc.cyan('`npx @agentmeter/cli status`')} to check service health.`);

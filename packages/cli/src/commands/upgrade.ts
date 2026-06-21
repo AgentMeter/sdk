@@ -8,9 +8,7 @@ import {
   uninstallLinux,
   uninstallMacos,
 } from '../services/service-installer.js';
-import { getLogPath } from '../utils/platform.js';
-import { getPlatform } from '../utils/platform.js';
-import { runSync } from './sync.js';
+import { getLogPath, getPlatform } from '../utils/platform.js';
 
 /**
  * Stops the running service, reinstalls it from the current binary, and starts it again.
@@ -57,12 +55,10 @@ export const upgradeCommand = new Command('upgrade')
         installLinux(config);
       }
 
-      console.log('\nRunning initial sync...');
-      await runSync({ verbose: false });
-
       const logPath = getLogPath();
       console.log(`\n${pc.green('✓ AgentMeter service upgraded and restarted')}`);
       console.log('  Config and sync state preserved.');
+      console.log('  First sync will run within 5 minutes.');
       console.log(`  Logs: ${pc.dim(logPath)}\n`);
       console.log(`  Run ${pc.cyan('`npx @agentmeter/cli status`')} to verify.`);
     } catch (err) {
