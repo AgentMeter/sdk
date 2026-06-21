@@ -143,6 +143,7 @@ function findJsonlFiles(dir: string): string[] {
   const results: string[] = [];
   for (const entry of dirEntries) {
     if (entry.name === 'memory') continue; // skip Claude Code memory dir
+    if (entry.name === 'subagents') continue; // skip subagent sessions (different schema)
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       results.push(...findJsonlFiles(fullPath));
