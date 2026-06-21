@@ -142,6 +142,9 @@ export function installMacos(config: Config): void {
   // Unload first in case it was previously installed
   spawnSync('launchctl', ['unload', plistPath]);
   spawnSync('launchctl', ['load', plistPath]);
+  // Explicitly start after load — launchctl load registers but doesn't always
+  // start immediately (e.g. after rapid restarts launchd applies throttle backoff)
+  spawnSync('launchctl', ['start', LAUNCHD_LABEL]);
 }
 
 /**
