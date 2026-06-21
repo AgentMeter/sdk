@@ -35,7 +35,7 @@ function getServiceProgramArgs(): string[] {
     // Dev mode: find tsx binary and use it as the runner
     try {
       const tsx = execFileSync('which', ['tsx'], { encoding: 'utf8' }).trim();
-      if (tsx) return [tsx, scriptPath, 'watch'];
+      if (tsx) return [tsx, scriptPath, 'watch', '--background'];
     } catch {
       // tsx not in PATH — fall through to production path
     }
@@ -44,11 +44,11 @@ function getServiceProgramArgs(): string[] {
   // Production: agentmeter global binary, or fall back to argv[1]
   try {
     const binary = execFileSync('which', ['agentmeter'], { encoding: 'utf8' }).trim();
-    if (binary) return [process.execPath, binary, 'watch'];
+    if (binary) return [process.execPath, binary, 'watch', '--background'];
   } catch {
     // not installed globally
   }
-  return [process.execPath, scriptPath, 'watch'];
+  return [process.execPath, scriptPath, 'watch', '--background'];
 }
 
 /**
