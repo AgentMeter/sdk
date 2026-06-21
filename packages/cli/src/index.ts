@@ -4,6 +4,7 @@ import { installCommand } from './commands/install.js';
 import { statusCommand } from './commands/status.js';
 import { syncCommand } from './commands/sync.js';
 import { uninstallCommand } from './commands/uninstall.js';
+import { upgradeCommand } from './commands/upgrade.js';
 import { watchCommand } from './commands/watch.js';
 
 const program = new Command();
@@ -18,6 +19,7 @@ program.addCommand(syncCommand);
 program.addCommand(watchCommand);
 program.addCommand(installCommand);
 program.addCommand(uninstallCommand);
+program.addCommand(upgradeCommand);
 program.addCommand(statusCommand);
 
 program.parse();
