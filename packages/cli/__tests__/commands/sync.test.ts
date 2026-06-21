@@ -135,7 +135,9 @@ describe('runSync', () => {
     });
 
     // The submitted payload should have status: 'success' and a non-null completedAt
-    const body = JSON.parse((vi.mocked(fetch).mock.calls[0]?.[1] as RequestInit).body as string) as unknown;
+    const body = JSON.parse(
+      (vi.mocked(fetch).mock.calls[0]?.[1] as RequestInit).body as string,
+    ) as unknown;
     expect(body).toMatchObject({ status: 'success' });
     expect((body as { completedAt?: string }).completedAt).toBeTruthy();
   });
