@@ -125,14 +125,14 @@ function resolveVanishedSessions(
   for (const [sessionId, stored] of Object.entries(syncState.sessions)) {
     if (stored.status !== 'running') continue;
     if (scannedIds.has(sessionId)) continue;
-    if (!stored.repoFullName || !stored.engine) continue;
+    if (!stored.repoFullName) continue;
 
     vanished.push({
       isNew: false,
       session: {
         sessionId,
         repoFullName: stored.repoFullName,
-        engine: stored.engine,
+        engine: stored.engine ?? 'cursor',
         model: stored.model ?? null,
         status: 'success',
         title: stored.title ?? null,
