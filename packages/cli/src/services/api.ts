@@ -186,6 +186,16 @@ export class ApiClient {
       return { sessionId: session.sessionId, costCents: null, status: 'duplicate' };
     }
 
+    if (response.status === 404) {
+      logger.error(`Session ${session.sessionId} rejected: repo not found on server`);
+      return {
+        sessionId: session.sessionId,
+        costCents: null,
+        status: 'error',
+        error: 'Repo not found',
+      };
+    }
+
     if (response.status === 400 || response.status === 422) {
       let errorMsg = 'Validation error';
       try {
