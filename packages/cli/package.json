@@ -1,6 +1,6 @@
 {
   "name": "@agentmeter/cli",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Track local AI coding agent session costs — Claude Code, Cursor, Codex",
   "keywords": [
     "ai",
