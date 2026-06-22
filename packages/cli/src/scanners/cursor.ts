@@ -508,6 +508,7 @@ function buildCursorSession({
   return {
     sessionId: composerId,
     repoFullName: workspacePath ? resolveRepoFullName(workspacePath) : 'unknown',
+    workspacePath: workspacePath || null,
     engine: 'cursor',
     model: rawModel !== null ? normalizeCursorModel(rawModel) : null,
     status: isRunning ? 'running' : 'success',

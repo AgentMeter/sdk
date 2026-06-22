@@ -126,9 +126,12 @@ export class ApiClient {
   /**
    * Submits a local session to POST /api/ingest/local with retry on 429.
    * Throws on 401 (invalid key). Returns a SubmitResult for all other outcomes.
+   * Pass apiKeyOverride to use a per-project key instead of the global config key
+   * (e.g. from .agentmeter.json in the project directory).
    */
-  async submitSession(session: LocalSession): Promise<SubmitResult> {
+  async submitSession(session: LocalSession, apiKeyOverride?: string): Promise<SubmitResult> {
     const t = session.tokens;
+    const apiKey = apiKeyOverride ?? this.config.apiKey;
     const body = {
       sessionId: session.sessionId,
       repoFullName: session.repoFullName,
@@ -154,7 +157,7 @@ export class ApiClient {
       const response = await fetch(`${this.config.apiUrl}/api/ingest/local`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${this.config.apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),

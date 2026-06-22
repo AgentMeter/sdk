@@ -263,6 +263,7 @@ function buildSession({
   return {
     sessionId,
     repoFullName,
+    workspacePath: cwd || null,
     engine: 'claude',
     model: extractModel(entries),
     status: extractStatus(entries),

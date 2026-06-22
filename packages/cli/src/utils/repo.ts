@@ -5,24 +5,23 @@ import { z } from 'zod';
 
 const AgentMeterProjectConfigSchema = z
   .object({
+    apiKey: z.string().optional(),
     repoFullName: z.string().optional(),
     repo: z.string().optional(),
   })
   .passthrough();
 
 /**
- * Walks up from dir looking for .agentmeter.json with a repoFullName or repo field
+ * Walks up from dir looking for .agentmeter.json and returns the parsed config,
+ * or null if not found.
  */
-function findProjectConfig(dir: string): string | null {
+function findRawProjectConfig(dir: string): z.infer<typeof AgentMeterProjectConfigSchema> | null {
   let current = dir;
   while (true) {
     try {
       const raw = fs.readFileSync(path.join(current, '.agentmeter.json'), 'utf8');
       const result = AgentMeterProjectConfigSchema.safeParse(JSON.parse(raw));
-      if (result.success) {
-        const value = result.data.repoFullName ?? result.data.repo;
-        if (value) return value;
-      }
+      if (result.success) return result.data;
     } catch {
       // Not found at this level — keep walking up
     }
@@ -30,6 +29,14 @@ function findProjectConfig(dir: string): string | null {
     if (parent === current) return null;
     current = parent;
   }
+}
+
+/**
+ * Walks up from dir looking for .agentmeter.json with a repoFullName or repo field
+ */
+function findProjectConfig(dir: string): string | null {
+  const config = findRawProjectConfig(dir);
+  return config?.repoFullName ?? config?.repo ?? null;
 }
 
 /**
@@ -43,6 +50,16 @@ function parseGitRemoteUrl(url: string): string | null {
   const httpsMatch = trimmed.match(/^https?:\/\/[^/]+\/(.+?)(?:\.git)?$/);
   if (httpsMatch?.[1]) return httpsMatch[1];
   return null;
+}
+
+/**
+ * Resolves a per-project API key override from .agentmeter.json.
+ * Returns null if no .agentmeter.json with an apiKey field is found.
+ * Useful when different projects should be tracked under different AgentMeter accounts
+ * (e.g. personal repos under a personal account, org repos under an org account).
+ */
+export function resolveProjectApiKey(dir: string): string | null {
+  return findRawProjectConfig(dir)?.apiKey ?? null;
 }
 
 /**

@@ -10,6 +10,7 @@ import { getEffectiveConfig } from '../services/config.js';
 import { logger } from '../services/logger.js';
 import { readSyncState, writeSyncState } from '../services/sync-state.js';
 import { formatCost, formatDuration } from '../utils/format.js';
+import { resolveProjectApiKey } from '../utils/repo.js';
 
 /**
  * Runtime options for a sync run, controlling output and filtering
@@ -176,6 +177,7 @@ function resolveVanishedSessions({
       session: {
         sessionId,
         repoFullName: stored.repoFullName,
+        workspacePath: null,
         engine: stored.engine ?? 'cursor',
         model: stored.model ?? null,
         status: 'success',
@@ -264,12 +266,20 @@ async function submitAll({
   let totalCostCents = 0;
 
   for (const { isNew, session } of toSync) {
-    const result = await api.submitSession(session).catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(pc.red(`\nError: ${message}`));
-      writeSyncState({ ...syncState, lastSyncAt: new Date().toISOString() });
-      process.exit(1);
-    });
+    // Per-project .agentmeter.json may override the global API key — allows
+    // personal project dirs to submit to a personal account while the global
+    // key points at an org account, or vice versa.
+    const projectApiKey = session.workspacePath
+      ? resolveProjectApiKey(session.workspacePath)
+      : null;
+    const result = await api
+      .submitSession(session, projectApiKey ?? undefined)
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(pc.red(`\nError: ${message}`));
+        writeSyncState({ ...syncState, lastSyncAt: new Date().toISOString() });
+        process.exit(1);
+      });
 
     if (result.status === 'error') {
       errorCount++;

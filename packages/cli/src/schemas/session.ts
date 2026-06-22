@@ -12,6 +12,8 @@ export const TokensSchema = z.object({
 export const LocalSessionSchema = z.object({
   sessionId: z.string(),
   repoFullName: z.string(),
+  /** Absolute path to the project workspace directory — used to resolve per-project config */
+  workspacePath: z.string().nullable(),
   engine: z.string(),
   model: z.string().nullable(),
   status: z.enum(['running', 'success', 'failure', 'cancelled']),
