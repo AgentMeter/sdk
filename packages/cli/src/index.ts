@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import { initCommand } from './commands/init.js';
 import { installCommand } from './commands/install.js';
@@ -7,12 +8,15 @@ import { uninstallCommand } from './commands/uninstall.js';
 import { upgradeCommand } from './commands/upgrade.js';
 import { watchCommand } from './commands/watch.js';
 
+const _require = createRequire(import.meta.url);
+const { version } = _require('../package.json') as { version: string };
+
 const program = new Command();
 
 program
   .name('agentmeter')
   .description('Track local AI coding agent session costs — Claude Code, Cursor, and more')
-  .version('0.1.0');
+  .version(version);
 
 program.addCommand(initCommand);
 program.addCommand(syncCommand);
