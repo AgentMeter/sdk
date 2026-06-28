@@ -1,6 +1,6 @@
 # @agentmeter/cli
 
-Track what your AI coding sessions actually cost. `@agentmeter/cli` scans your local Claude Code and Cursor session data, calculates per-session token costs, and syncs them to [AgentMeter](https://agentmeter.app) - giving you and your team a unified dashboard of AI spend across tools, projects, and engineers.
+Track what your AI coding sessions actually cost. `@agentmeter/cli` scans your local Claude Code and Cursor session data, calculates per-session token costs, and syncs them to [AgentMeter](https://agentmeter.app?utm_source=github&utm_medium=readme-package-cli&utm_campaign=agentmeter-sdk) - giving you and your team a unified dashboard of AI spend across tools, projects, and engineers.
 
 No proxying. No API key sharing. The CLI reads session data that the agents already write to your machine.
 

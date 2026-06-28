@@ -18,7 +18,7 @@
     "type": "git",
     "url": "https://github.com/AgentMeter/sdk"
   },
-  "homepage": "https://agentmeter.app",
+  "homepage": "https://agentmeter.app?utm_source=github&utm_medium=package&utm_campaign=agentmeter-sdk",
   "engines": {
     "node": ">=22.5.0"
   },
