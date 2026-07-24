@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { Command } from 'commander';
 import { z } from 'zod';
+import type { SyncState } from '../schemas/sync-state.js';
 import { getEffectiveConfig } from '../services/config.js';
 import { readSyncState } from '../services/sync-state.js';
 
@@ -49,6 +50,10 @@ const RunResponseSchema = z.object({
 // Helpers
 // ---------------------------------------------------------------------------
 
+const NO_API_KEY_HINT =
+  'Run `agentmeter init` to configure your API key, or set the AGENTMETER_API_KEY env var. ' +
+  'Sign up free at https://agentmeter.app';
+
 /**
  * Serialises a value as a plain text MCP tool result
  */
@@ -67,7 +72,7 @@ type FetchResult<T> = { ok: true; data: T } | { ok: false; error: string };
  * Returns a Bearer-authed fetch result, parsed through the given Zod schema.
  * On any failure returns `{ ok: false, error }` instead of throwing.
  */
-async function fetchJson<T>({
+export async function fetchJson<T>({
   apiKey,
   apiUrl,
   schema,
@@ -120,35 +125,205 @@ async function fetchJson<T>({
 }
 
 // ---------------------------------------------------------------------------
-// Command
+// Tool handlers (exported for unit testing)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the last `limit` sessions from sync-state.json sorted by submission time descending.
+ * Reads local data only — no API key required.
+ */
+export async function handleListRecentSessions({
+  limit = 10,
+}: {
+  /** Maximum number of sessions to return (1–50) */
+  limit?: number;
+}): Promise<ReturnType<typeof textResult>> {
+  let state: SyncState;
+  try {
+    state = readSyncState();
+  } catch (err) {
+    return textResult({
+      error: `Failed to read local session data: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
+
+  const entries = Object.entries(state.sessions);
+  const sorted = entries
+    .sort(([, a], [, b]) => {
+      const aTime = a?.submittedAt ?? '';
+      const bTime = b?.submittedAt ?? '';
+      return bTime.localeCompare(aTime);
+    })
+    .slice(0, limit)
+    .map(([sessionId, s]) => ({
+      costCents: s?.costCents ?? null,
+      engine: s?.engine ?? null,
+      model: s?.model ?? null,
+      repoFullName: s?.repoFullName ?? null,
+      sessionId,
+      startTime: s?.startTime ?? null,
+      status: s?.status ?? null,
+      submittedAt: s?.submittedAt ?? null,
+      title: s?.title ?? null,
+    }));
+
+  return textResult({ sessions: sorted, total: entries.length });
+}
+
+/**
+ * Fetches spend summary and daily time series for the last `days` days.
+ * Requires a valid AgentMeter API key.
+ */
+export async function handleGetMySpend({
+  days = 7,
+}: {
+  /** Number of days to look back */
+  days?: number;
+}): Promise<ReturnType<typeof textResult>> {
+  const config = getEffectiveConfig();
+  if (!config) {
+    return textResult({ error: 'AgentMeter API key required', hint: NO_API_KEY_HINT });
+  }
+
+  const result = await fetchJson({
+    apiKey: config.apiKey,
+    apiUrl: config.apiUrl,
+    path: `/api/trends?days=${days}`,
+    schema: TrendsResponseSchema,
+  });
+
+  if (!result.ok) {
+    return textResult({ error: result.error });
+  }
+
+  return textResult({
+    days,
+    summary: {
+      avgCostPerRunCents: result.data.summary.avgCostPerRunCents ?? null,
+      totalCostCents: result.data.summary.totalCostCents,
+      totalRuns: result.data.summary.totalRuns,
+    },
+    timeSeries: result.data.timeSeries,
+  });
+}
+
+/**
+ * Looks up a session by ID. Checks local sync state first (no API call); if not found
+ * and an API key is configured, falls back to GET /api/runs/<sessionId>.
+ */
+export async function handleGetSession({
+  sessionId,
+}: {
+  /** Session ID to look up */
+  sessionId: string;
+}): Promise<ReturnType<typeof textResult>> {
+  let state: SyncState;
+  try {
+    state = readSyncState();
+  } catch (err) {
+    return textResult({
+      error: `Failed to read local session data: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
+
+  const local = state.sessions[sessionId];
+  if (local) {
+    return textResult({
+      costCents: local.costCents ?? null,
+      engine: local.engine ?? null,
+      model: local.model ?? null,
+      repoFullName: local.repoFullName ?? null,
+      sessionId,
+      source: 'local',
+      startTime: local.startTime ?? null,
+      status: local.status,
+      submittedAt: local.submittedAt,
+      title: local.title ?? null,
+    });
+  }
+
+  const config = getEffectiveConfig();
+  if (!config) {
+    return textResult({
+      error: 'Session not found in local data',
+      hint: `Configure an API key to enable remote session lookup. ${NO_API_KEY_HINT}`,
+      sessionId,
+    });
+  }
+
+  const result = await fetchJson({
+    apiKey: config.apiKey,
+    apiUrl: config.apiUrl,
+    path: `/api/runs/${encodeURIComponent(sessionId)}`,
+    schema: RunResponseSchema,
+  });
+
+  if (!result.ok) {
+    return textResult({ error: result.error, sessionId });
+  }
+
+  return textResult({
+    costCents: result.data.costCents ?? null,
+    durationSeconds: result.data.durationSeconds ?? null,
+    engine: result.data.engine ?? null,
+    model: result.data.model ?? null,
+    sessionId: result.data.sessionId,
+    source: 'api',
+    status: result.data.status ?? null,
+    title: result.data.title ?? null,
+  });
+}
+
+/**
+ * Fetches per-contributor spend breakdown. Requires a Pro plan and a valid API key.
+ */
+export async function handleGetTeamSpend({
+  days = 30,
+}: {
+  /** Number of days to look back */
+  days?: number;
+}): Promise<ReturnType<typeof textResult>> {
+  const config = getEffectiveConfig();
+  if (!config) {
+    return textResult({ error: 'AgentMeter API key required', hint: NO_API_KEY_HINT });
+  }
+
+  const result = await fetchJson({
+    apiKey: config.apiKey,
+    apiUrl: config.apiUrl,
+    path: `/api/contributors?days=${days}`,
+    schema: ContributorsResponseSchema,
+  });
+
+  if (!result.ok) {
+    return textResult({ error: result.error });
+  }
+
+  return textResult({ contributors: result.data, days });
+}
+
+// ---------------------------------------------------------------------------
+// MCP server
 // ---------------------------------------------------------------------------
 
 /**
  * Creates and starts the MCP stdio server, registering all AgentMeter tools.
  * Never writes to stdout — the MCP protocol uses stdout exclusively.
+ * Tools that require an API key return a structured error + sign-up hint
+ * when no key is configured, so the server starts cleanly for everyone.
  */
 async function startMcpServer(): Promise<void> {
-  const config = getEffectiveConfig();
-  if (!config) {
-    process.stderr.write('Error: No API key configured. Run `agentmeter init` first.\n');
-    process.exit(1);
-  }
-
   const server = new McpServer(
     { name: 'agentmeter', version: '1.0.0' },
     { capabilities: { tools: {} } },
   );
 
-  // -------------------------------------------------------------------------
-  // Tool 1: list_recent_sessions
-  // -------------------------------------------------------------------------
-
   server.tool(
     'list_recent_sessions',
     'List recent local AI coding agent sessions from ~/.agentmeter/sync-state.json. ' +
       'Returns sessions sorted by submission time (newest first). ' +
-      'Works without an API key — reads local data only. ' +
-      'Use this to quickly see recent activity and costs without a network call.',
+      'No API key required — reads local data only. ' +
+      'Useful for a quick overview of recent activity and costs without any network call.',
     {
       limit: z
         .number()
@@ -158,42 +333,15 @@ async function startMcpServer(): Promise<void> {
         .optional()
         .describe('Maximum number of sessions to return (1–50, default 10)'),
     },
-    async ({ limit = 10 }) => {
-      const state = readSyncState();
-      const entries = Object.entries(state.sessions);
-
-      const sorted = entries
-        .sort(([, a], [, b]) => {
-          const aTime = a?.submittedAt ?? '';
-          const bTime = b?.submittedAt ?? '';
-          return bTime.localeCompare(aTime);
-        })
-        .slice(0, limit)
-        .map(([sessionId, s]) => ({
-          costCents: s?.costCents ?? null,
-          engine: s?.engine ?? null,
-          model: s?.model ?? null,
-          repoFullName: s?.repoFullName ?? null,
-          sessionId,
-          startTime: s?.startTime ?? null,
-          status: s?.status ?? null,
-          submittedAt: s?.submittedAt ?? null,
-          title: s?.title ?? null,
-        }));
-
-      return textResult({ sessions: sorted, total: entries.length });
-    },
+    async ({ limit = 10 }) => handleListRecentSessions({ limit }),
   );
-
-  // -------------------------------------------------------------------------
-  // Tool 2: get_my_spend
-  // -------------------------------------------------------------------------
 
   server.tool(
     'get_my_spend',
     'Fetch your AgentMeter spend summary and daily time series from the API. ' +
       'Returns total cost, total runs, average cost per run, and a per-day breakdown. ' +
-      'Requires a valid API key.',
+      'Requires an AgentMeter API key (free tier available at https://agentmeter.app). ' +
+      'If no key is configured, returns instructions on how to set one up.',
     {
       days: z
         .number()
@@ -203,95 +351,27 @@ async function startMcpServer(): Promise<void> {
         .optional()
         .describe('Number of days to look back (default 7)'),
     },
-    async ({ days = 7 }) => {
-      const result = await fetchJson({
-        apiKey: config.apiKey,
-        apiUrl: config.apiUrl,
-        path: `/api/trends?days=${days}`,
-        schema: TrendsResponseSchema,
-      });
-
-      if (!result.ok) {
-        return textResult({ error: result.error });
-      }
-
-      return textResult({
-        days,
-        summary: {
-          avgCostPerRunCents: result.data.summary.avgCostPerRunCents ?? null,
-          totalCostCents: result.data.summary.totalCostCents,
-          totalRuns: result.data.summary.totalRuns,
-        },
-        timeSeries: result.data.timeSeries,
-      });
-    },
+    async ({ days = 7 }) => handleGetMySpend({ days }),
   );
-
-  // -------------------------------------------------------------------------
-  // Tool 3: get_session
-  // -------------------------------------------------------------------------
 
   server.tool(
     'get_session',
     'Look up a specific session by its ID. ' +
       'Checks local sync state first (fast, no API call); ' +
-      'falls back to GET /api/runs/<sessionId> if not found locally. ' +
+      'falls back to GET /api/runs/<sessionId> if not found locally (requires API key). ' +
       'Returns cost, model, engine, status, title, and duration.',
     {
       sessionId: z.string().describe('The session ID to look up'),
     },
-    async ({ sessionId }) => {
-      const state = readSyncState();
-      const local = state.sessions[sessionId];
-
-      if (local) {
-        return textResult({
-          costCents: local.costCents ?? null,
-          engine: local.engine ?? null,
-          model: local.model ?? null,
-          repoFullName: local.repoFullName ?? null,
-          sessionId,
-          source: 'local',
-          startTime: local.startTime ?? null,
-          status: local.status,
-          submittedAt: local.submittedAt,
-          title: local.title ?? null,
-        });
-      }
-
-      const result = await fetchJson({
-        apiKey: config.apiKey,
-        apiUrl: config.apiUrl,
-        path: `/api/runs/${encodeURIComponent(sessionId)}`,
-        schema: RunResponseSchema,
-      });
-
-      if (!result.ok) {
-        return textResult({ error: result.error, sessionId });
-      }
-
-      return textResult({
-        costCents: result.data.costCents ?? null,
-        durationSeconds: result.data.durationSeconds ?? null,
-        engine: result.data.engine ?? null,
-        model: result.data.model ?? null,
-        sessionId: result.data.sessionId,
-        source: 'api',
-        status: result.data.status ?? null,
-        title: result.data.title ?? null,
-      });
-    },
+    async ({ sessionId }) => handleGetSession({ sessionId }),
   );
-
-  // -------------------------------------------------------------------------
-  // Tool 4: get_team_spend
-  // -------------------------------------------------------------------------
 
   server.tool(
     'get_team_spend',
     'Fetch per-contributor spend breakdown from the AgentMeter API. ' +
       'Returns an array of contributors with total cost, total runs, and connection status. ' +
-      'Requires a Pro plan and a valid API key.',
+      'Requires a Pro plan and a valid AgentMeter API key. ' +
+      'If no key is configured, returns instructions on how to set one up.',
     {
       days: z
         .number()
@@ -301,25 +381,8 @@ async function startMcpServer(): Promise<void> {
         .optional()
         .describe('Number of days to look back (default 30)'),
     },
-    async ({ days = 30 }) => {
-      const result = await fetchJson({
-        apiKey: config.apiKey,
-        apiUrl: config.apiUrl,
-        path: `/api/contributors?days=${days}`,
-        schema: ContributorsResponseSchema,
-      });
-
-      if (!result.ok) {
-        return textResult({ error: result.error });
-      }
-
-      return textResult({ contributors: result.data, days });
-    },
+    async ({ days = 30 }) => handleGetTeamSpend({ days }),
   );
-
-  // -------------------------------------------------------------------------
-  // Start server
-  // -------------------------------------------------------------------------
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
