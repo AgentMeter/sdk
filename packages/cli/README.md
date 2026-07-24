@@ -38,14 +38,7 @@ Add to your MCP client config and start asking questions. The server scans your 
 
 The first call scans your local data (takes a moment). Subsequent calls within 60 seconds return instantly from the in-memory cache.
 
-### Slash commands
-
-Once connected, these are available as slash commands in your AI agent:
-
-| Command | Description |
-|---------|-------------|
-| `/mcp__agentmeter__sessions` | Show recent sessions — token usage, duration, model. Optional: `limit` |
-| `/mcp__agentmeter__spend` | Show spend summary and daily breakdown (requires account). Optional: `days` |
+> **Claude Code CLI only:** if you use the `claude` terminal app (not the VS Code extension), the server also registers two slash commands — `/mcp__agentmeter__sessions` and `/mcp__agentmeter__spend` — that inject live data directly into your conversation. These are not available in the VS Code extension or Cursor.
 
 ### Available tools (no account needed)
 
