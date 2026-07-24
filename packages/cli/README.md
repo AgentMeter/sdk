@@ -98,15 +98,16 @@ These tools read from your local `~/.agentmeter/sync-state.json` — no API key,
 
 | Tool | Description |
 |------|-------------|
-| `list_recent_sessions` | Returns the last N sessions (default 10, max 50) sorted by recency. Each result includes `sessionId`, `title`, `engine`, `model`, `repoFullName`, `status`, `startTime`, `costCents`\*. |
-| `get_session` | Looks up a session by ID from the local cache and returns cost, model, engine, status, and title. |
+| `list_recent_sessions` | Returns the last N sessions (default 10, max 50) sorted by recency. Each result includes `sessionId`, `title`, `engine`, `model`, `repoFullName`, `status`, `startTime`, `tokens` (input/output/cache counts), and `costCents`\*. |
+| `get_session` | Looks up a session by ID from the local cache and returns the same fields. |
 
-\* `costCents` is only populated after syncing to AgentMeter (see below). Without an account it will be `null`.
+\* `costCents` requires an AgentMeter account (see below). Token counts are always available locally.
 
 Example questions your agent can answer locally:
 
 > "Show me my last 10 Claude Code sessions."
-> "Which of my recent sessions ran the longest?"
+> "Which of my recent sessions used the most tokens?"
+> "What's the total token spend across my last 20 sessions?"
 > "List my recent Cursor sessions on the `my-app` repo."
 
 ---

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TokensSchema } from './session.js';
 
 export const SyncedSessionSchema = z.object({
   status: z.enum(['running', 'success', 'failure', 'cancelled']),
@@ -11,6 +12,8 @@ export const SyncedSessionSchema = z.object({
   repoFullName: z.string().optional(),
   model: z.string().nullable().optional(),
   startTime: z.string().optional(),
+  /** Token counts from the scanner — present for sessions synced after this field was added */
+  tokens: TokensSchema.optional(),
 });
 
 export const SyncStateSchema = z.object({

@@ -165,6 +165,7 @@ export async function handleListRecentSessions({
       status: s?.status ?? null,
       submittedAt: s?.submittedAt ?? null,
       title: s?.title ?? null,
+      tokens: s?.tokens ?? null,
     }));
 
   return textResult({ sessions: sorted, total: entries.length });
@@ -239,6 +240,7 @@ export async function handleGetSession({
       status: local.status,
       submittedAt: local.submittedAt,
       title: local.title ?? null,
+      tokens: local.tokens ?? null,
     });
   }
 
