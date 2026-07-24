@@ -2,7 +2,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { Command } from 'commander';
 import { z } from 'zod';
-import type { SyncState } from '../schemas/sync-state.js';
+import { ClaudeScanner } from '../scanners/claude.js';
+import { CursorScanner } from '../scanners/cursor.js';
+import type { LocalSession } from '../schemas/session.js';
 import { getEffectiveConfig } from '../services/config.js';
 import { readSyncState } from '../services/sync-state.js';
 
@@ -47,6 +49,59 @@ const RunResponseSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Local session scanning — with in-memory cache
+// ---------------------------------------------------------------------------
+
+/** Sessions older than this are excluded from list_recent_sessions results */
+const LIST_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000; // 12 months
+
+/** How long to reuse a scan result before re-scanning */
+const SCAN_CACHE_TTL_MS = 60_000; // 60 seconds
+
+/**
+ * In-memory cache of the last scan result.
+ * Lives for the lifetime of the MCP server process (one per client connection).
+ */
+interface SessionScanCache {
+  /** Timestamp when this cache entry was populated */
+  cachedAt: number;
+  /** All sessions found across all available scanners, sorted by startTime descending */
+  sessions: LocalSession[];
+}
+
+let sessionScanCache: SessionScanCache | null = null;
+
+/**
+ * Runs all available scanners and returns their combined results sorted by
+ * startTime descending. Results are cached in memory for SCAN_CACHE_TTL_MS —
+ * subsequent calls within the TTL window skip the scan and return immediately.
+ * Scanner failures are caught individually so one broken scanner never blocks another.
+ */
+export async function getLocalSessions(): Promise<LocalSession[]> {
+  if (sessionScanCache !== null && Date.now() - sessionScanCache.cachedAt < SCAN_CACHE_TTL_MS) {
+    return sessionScanCache.sessions;
+  }
+
+  const scanners = [new ClaudeScanner(), new CursorScanner()];
+  const all: LocalSession[] = [];
+
+  for (const scanner of scanners) {
+    try {
+      if (!(await scanner.isAvailable())) continue;
+      const found = await scanner.scan();
+      all.push(...found);
+    } catch {
+      // One scanner failing should not prevent results from others
+    }
+  }
+
+  all.sort((a, b) => b.startTime.localeCompare(a.startTime));
+
+  sessionScanCache = { cachedAt: Date.now(), sessions: all };
+  return all;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -61,6 +116,24 @@ function textResult(value: unknown): { content: [{ text: string; type: 'text' }]
   return {
     content: [{ text: JSON.stringify(value, null, 2), type: 'text' as const }],
   };
+}
+
+/**
+ * Reads sync-state and returns a sessionId → costCents map.
+ * Returns an empty object if sync-state is absent or unreadable.
+ * costCents is only present for sessions that have been submitted to AgentMeter.
+ */
+function readCostMap(): Record<string, number | null> {
+  try {
+    const state = readSyncState();
+    const map: Record<string, number | null> = {};
+    for (const [id, s] of Object.entries(state.sessions)) {
+      map[id] = s?.costCents ?? null;
+    }
+    return map;
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -129,8 +202,10 @@ export async function fetchJson<T>({
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the last `limit` sessions from sync-state.json sorted by submission time descending.
- * Reads local data only — no API key required.
+ * Scans local Claude Code and Cursor data and returns the most recent sessions.
+ * Results are filtered to the last 12 months and limited to `limit` entries.
+ * costCents is enriched from sync-state when available (requires AgentMeter account).
+ * No API key required.
  */
 export async function handleListRecentSessions({
   limit = 10,
@@ -138,37 +213,36 @@ export async function handleListRecentSessions({
   /** Maximum number of sessions to return (1–50) */
   limit?: number;
 }): Promise<ReturnType<typeof textResult>> {
-  let state: SyncState;
+  let all: LocalSession[];
   try {
-    state = readSyncState();
+    all = await getLocalSessions();
   } catch (err) {
     return textResult({
-      error: `Failed to read local session data: ${err instanceof Error ? err.message : String(err)}`,
+      error: `Failed to scan local sessions: ${err instanceof Error ? err.message : String(err)}`,
     });
   }
 
-  const entries = Object.entries(state.sessions);
-  const sorted = entries
-    .sort(([, a], [, b]) => {
-      const aTime = a?.submittedAt ?? '';
-      const bTime = b?.submittedAt ?? '';
-      return bTime.localeCompare(aTime);
-    })
-    .slice(0, limit)
-    .map(([sessionId, s]) => ({
-      costCents: s?.costCents ?? null,
-      engine: s?.engine ?? null,
-      model: s?.model ?? null,
-      repoFullName: s?.repoFullName ?? null,
-      sessionId,
-      startTime: s?.startTime ?? null,
-      status: s?.status ?? null,
-      submittedAt: s?.submittedAt ?? null,
-      title: s?.title ?? null,
-      tokens: s?.tokens ?? null,
-    }));
+  const cutoff = new Date(Date.now() - LIST_MAX_AGE_MS).toISOString();
+  const recent = all.filter((s) => s.startTime >= cutoff);
 
-  return textResult({ sessions: sorted, total: entries.length });
+  const costMap = readCostMap();
+
+  const sessions = recent.slice(0, limit).map((s) => ({
+    costCents: costMap[s.sessionId] ?? null,
+    durationSeconds: s.durationSeconds,
+    endTime: s.endTime,
+    engine: s.engine,
+    model: s.model,
+    repoFullName: s.repoFullName,
+    sessionId: s.sessionId,
+    startTime: s.startTime,
+    status: s.status,
+    title: s.title,
+    tokens: s.tokens,
+    turns: s.turns,
+  }));
+
+  return textResult({ sessions, total: recent.length });
 }
 
 /**
@@ -209,8 +283,8 @@ export async function handleGetMySpend({
 }
 
 /**
- * Looks up a session by ID. Checks local sync state first (no API call); if not found
- * and an API key is configured, falls back to GET /api/runs/<sessionId>.
+ * Looks up a session by ID. Checks live local scan first (no API key required);
+ * if not found and an API key is configured, falls back to GET /api/runs/<sessionId>.
  */
 export async function handleGetSession({
   sessionId,
@@ -218,29 +292,33 @@ export async function handleGetSession({
   /** Session ID to look up */
   sessionId: string;
 }): Promise<ReturnType<typeof textResult>> {
-  let state: SyncState;
+  let all: LocalSession[];
   try {
-    state = readSyncState();
+    all = await getLocalSessions();
   } catch (err) {
     return textResult({
-      error: `Failed to read local session data: ${err instanceof Error ? err.message : String(err)}`,
+      error: `Failed to scan local sessions: ${err instanceof Error ? err.message : String(err)}`,
     });
   }
 
-  const local = state.sessions[sessionId];
+  const local = all.find((s) => s.sessionId === sessionId);
+
   if (local) {
+    const costMap = readCostMap();
     return textResult({
-      costCents: local.costCents ?? null,
-      engine: local.engine ?? null,
-      model: local.model ?? null,
-      repoFullName: local.repoFullName ?? null,
-      sessionId,
+      costCents: costMap[sessionId] ?? null,
+      durationSeconds: local.durationSeconds,
+      endTime: local.endTime,
+      engine: local.engine,
+      model: local.model,
+      repoFullName: local.repoFullName,
+      sessionId: local.sessionId,
       source: 'local',
-      startTime: local.startTime ?? null,
+      startTime: local.startTime,
       status: local.status,
-      submittedAt: local.submittedAt,
-      title: local.title ?? null,
-      tokens: local.tokens ?? null,
+      title: local.title,
+      tokens: local.tokens,
+      turns: local.turns,
     });
   }
 
@@ -311,8 +389,8 @@ export async function handleGetTeamSpend({
 /**
  * Creates and starts the MCP stdio server, registering all AgentMeter tools.
  * Never writes to stdout — the MCP protocol uses stdout exclusively.
- * Tools that require an API key return a structured error + sign-up hint
- * when no key is configured, so the server starts cleanly for everyone.
+ * Local tools scan Claude Code and Cursor data on demand (no prior setup required).
+ * API tools return a structured error + sign-up hint when no key is configured.
  */
 async function startMcpServer(): Promise<void> {
   const server = new McpServer(
@@ -322,10 +400,11 @@ async function startMcpServer(): Promise<void> {
 
   server.tool(
     'list_recent_sessions',
-    'List recent local AI coding agent sessions from ~/.agentmeter/sync-state.json. ' +
-      'Returns sessions sorted by submission time (newest first). ' +
-      'No API key required — reads local data only. ' +
-      'Useful for a quick overview of recent activity and costs without any network call.',
+    'List recent AI coding sessions scanned live from Claude Code and Cursor on this machine. ' +
+      'Returns sessions from the last 12 months sorted by start time (newest first). ' +
+      'No API key required. Includes token counts (input/output/cache), duration, and model. ' +
+      'Cost in cents is included when sessions have been synced to AgentMeter (agentmeter.app). ' +
+      'The first call may take a moment to scan local data; subsequent calls within 60 seconds are instant.',
     {
       limit: z
         .number()
@@ -358,10 +437,10 @@ async function startMcpServer(): Promise<void> {
 
   server.tool(
     'get_session',
-    'Look up a specific session by its ID. ' +
-      'Checks local sync state first (fast, no API call); ' +
-      'falls back to GET /api/runs/<sessionId> if not found locally (requires API key). ' +
-      'Returns cost, model, engine, status, title, and duration.',
+    'Look up a specific AI coding session by ID. ' +
+      'Checks local Claude Code and Cursor data first (no API key needed); ' +
+      'falls back to the AgentMeter API if not found locally (requires API key). ' +
+      'Returns cost, model, engine, status, title, tokens, and duration.',
     {
       sessionId: z.string().describe('The session ID to look up'),
     },

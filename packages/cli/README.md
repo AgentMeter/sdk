@@ -1,70 +1,14 @@
 # @agentmeter/cli
 
-Track what your AI coding sessions cost. `@agentmeter/cli` reads the session data that Claude Code and Cursor already write to your machine — token counts, model, duration, project — and gives you a local history of every session and its cost. No proxying, no account required.
+Track what your AI coding sessions cost. Reads the session data that Claude Code and Cursor already write to your machine — token counts, model, duration, project — and exposes it as an MCP server your AI agent can query directly.
 
-- **Claude Code** — parses JSONL conversation logs in `~/.claude/projects/`, extracting exact token counts from the recorded Anthropic API responses.
-- **Cursor** — reads the local SQLite state database. Counts are approximate (Cursor is subscription-based and doesn't expose exact billing data locally).
-
-## Requirements
-
-- **Node.js 22.5+** — the Cursor scanner uses `node:sqlite`, built in as of 22.5.
-- **macOS or Linux** — full support. On Windows, `sync` works manually but `install`/`uninstall` do not.
+No account required. No setup beyond two lines of JSON.
 
 ---
 
-## Quick start
+## MCP server (no account needed)
 
-```bash
-# Scan your sessions once
-npx @agentmeter/cli sync
-
-# Install as a background service — auto-syncs every 5 minutes
-npx @agentmeter/cli install
-```
-
-That's it. Sessions are now tracked in `~/.agentmeter/sync-state.json` and kept up to date automatically.
-
-## Commands
-
-| Command     | Description                                        |
-| ----------- | -------------------------------------------------- |
-| `sync`      | Scan local sessions and update the local cache     |
-| `install`   | Install as a system service (macOS/Linux)          |
-| `uninstall` | Remove the system service                          |
-| `watch`     | Run the sync loop in the foreground                |
-| `upgrade`   | Reinstall the service from the current binary      |
-| `status`    | Show service health and session counts             |
-| `mcp`       | Start an MCP stdio server (see below)              |
-| `init`      | Configure an AgentMeter API key (see below)        |
-
-### `sync` flags
-
-| Flag | Description |
-|---|---|
-| `--verbose` | Show each session's status, cost, and duration |
-| `--dry-run` | Preview what would be synced without writing anything |
-| `--since <date>` | Only include sessions after this date (ISO 8601) |
-| `--engine <name>` | Only run a specific scanner (`claude`, `cursor`) |
-
-### Background service
-
-`install` sets up the CLI to sync every 5 minutes, survive reboots, and start on login.
-
-- **macOS** — installs a launchd agent (`~/Library/LaunchAgents/`)
-- **Linux** — installs a systemd user service
-
-```bash
-npx @agentmeter/cli status    # check it's running
-npx @agentmeter/cli uninstall # remove it (config and data are preserved)
-```
-
----
-
-## MCP server
-
-`agentmeter mcp` starts a stdio MCP server so any MCP-compatible agent (Claude Code, Cursor, etc.) can query your session history directly as tools — without leaving their workflow.
-
-### Setup
+Add to your MCP client config and start asking questions. The server scans your local Claude Code and Cursor data on demand — no prior sync, no background service, nothing to install first.
 
 **Claude Code** — add to `~/.claude.json`:
 
@@ -92,46 +36,46 @@ npx @agentmeter/cli uninstall # remove it (config and data are preserved)
 }
 ```
 
-### Tools available without an account
+The first call scans your local data (takes a moment). Subsequent calls within 60 seconds return instantly from the in-memory cache.
 
-These tools read from your local `~/.agentmeter/sync-state.json` — no API key, no network call.
+### Available tools (no account needed)
 
 | Tool | Description |
 |------|-------------|
-| `list_recent_sessions` | Returns the last N sessions (default 10, max 50) sorted by recency. Each result includes `sessionId`, `title`, `engine`, `model`, `repoFullName`, `status`, `startTime`, `tokens` (input/output/cache counts), and `costCents`\*. |
-| `get_session` | Looks up a session by ID from the local cache and returns the same fields. |
+| `list_recent_sessions` | Sessions from the last 12 months, sorted newest first. Includes token counts (input/output/cache), duration, model, engine, and repo. `costCents` is populated if you have an AgentMeter account (see below). |
+| `get_session` | Look up a session by ID from local data. Same fields as above. Falls back to the AgentMeter API if not found locally (requires account). |
 
-\* `costCents` requires an AgentMeter account (see below). Token counts are always available locally.
-
-Example questions your agent can answer locally:
+Example questions your agent can answer with no account:
 
 > "Show me my last 10 Claude Code sessions."
-> "Which of my recent sessions used the most tokens?"
-> "What's the total token spend across my last 20 sessions?"
-> "List my recent Cursor sessions on the `my-app` repo."
+> "Which session used the most tokens this week?"
+> "What's my total token usage across the last 20 sessions?"
+> "Show me my recent Cursor sessions on the `my-app` repo."
 
 ---
 
-## Unlock dashboards, trends, and team visibility
+## Unlock cost data, dashboards, and team visibility
 
-The local cache is useful on its own, but connecting to [AgentMeter](https://agentmeter.app) gives you cost data per session, a web dashboard, spend trends over time, and team-level visibility across engineers and projects.
+Connecting to [AgentMeter](https://agentmeter.app) gives you cost-per-session in dollars (not just tokens), a web dashboard, spend trends over time, and team-level visibility.
 
 ### What you get
 
-- **Cost per session** — `costCents` is calculated by the API and written back to your local cache, so the `list_recent_sessions` MCP tool also shows costs once you're connected.
-- **Web dashboard** — session history, per-repo breakdowns, and model-level spend.
-- **Trends** — daily and weekly spend charts queryable via MCP.
-- **Team visibility** — see connected engineers, their session counts, and spend (Pro).
+- **`costCents` per session** — calculated by the API and returned to your local cache, so `list_recent_sessions` starts showing dollar costs too
+- **Web dashboard** — session history, per-repo breakdowns, model-level spend
+- **Spend trends** — daily and weekly charts queryable via MCP
+- **Team visibility** — connected engineers, session counts, and spend (Pro)
 
 ### Connect in 30 seconds
 
-Sign in at [agentmeter.app](https://agentmeter.app) with GitHub and generate a personal API key under **Settings → API Keys**, then:
+Sign in at [agentmeter.app](https://agentmeter.app) with GitHub, generate a personal API key under **Settings → API Keys**, then:
 
 ```bash
 npx @agentmeter/cli init
+npx @agentmeter/cli sync      # submit your sessions and get cost data back
+npx @agentmeter/cli install   # keep it syncing automatically every 5 minutes
 ```
 
-Or set the environment variable directly in your MCP config if you prefer not to run `init`:
+Or pass the key via your MCP config without running `init`:
 
 ```json
 {
@@ -151,19 +95,69 @@ Or set the environment variable directly in your MCP config if you prefer not to
 
 | Tool | Description |
 |------|-------------|
-| `get_session` (API fallback) | If a session isn't in the local cache, fetches it from the API by ID. |
+| `get_session` (API fallback) | Fetches a session from the API when not in local data. |
 | `get_my_spend` | Spend summary + daily time series for the last N days. Returns `totalCostCents`, `totalRuns`, `avgCostPerRunCents`, and a per-day breakdown. |
 | `get_team_spend` | Per-contributor breakdown — `login`, `totalCostCents`, `totalRuns`, `connectionStatus`. Pro plan. |
 
 Example questions unlocked with an account:
 
 > "How much have I spent on Claude Code this week?"
-> "What was the cost of session `abc123`?"
+> "What's my average cost per session this month?"
 > "Show me my team's AI spend for the last 30 days."
 
-### For teams
+---
 
-Each engineer runs `agentmeter init` with their own personal API key. Sessions are attributed automatically, and the team admin sees coverage (who's connected) and spend per person in the dashboard.
+## CLI reference
+
+The CLI is optional for MCP usage but required for background auto-sync and for submitting sessions to AgentMeter.
+
+### Requirements
+
+- **Node.js 22.5+** — the Cursor scanner uses `node:sqlite`, built in as of 22.5
+- **macOS or Linux** — full support. On Windows, `sync` works manually but `install`/`uninstall` do not
+
+### Commands
+
+| Command     | Description                                        |
+| ----------- | -------------------------------------------------- |
+| `mcp`       | Start MCP stdio server                             |
+| `sync`      | Scan local sessions and submit to AgentMeter       |
+| `install`   | Install as a system service (macOS/Linux)          |
+| `uninstall` | Remove the system service                          |
+| `watch`     | Run the sync loop in the foreground                |
+| `upgrade`   | Reinstall the service from the current binary      |
+| `status`    | Show service health and session counts             |
+| `init`      | Configure an AgentMeter API key                    |
+
+### `sync` flags
+
+| Flag | Description |
+|---|---|
+| `--verbose` | Show each session's status, cost, and duration |
+| `--dry-run` | Preview what would be submitted without sending anything |
+| `--since <date>` | Only include sessions after this date (ISO 8601) |
+| `--engine <name>` | Only run a specific scanner (`claude`, `cursor`) |
+
+### Background service
+
+`install` sets up the CLI to sync every 5 minutes, survive reboots, and start on login.
+
+- **macOS** — installs a launchd agent (`~/Library/LaunchAgents/`)
+- **Linux** — installs a systemd user service
+
+```bash
+npx @agentmeter/cli status    # check it's running
+npx @agentmeter/cli uninstall # remove it (config and data are preserved)
+```
+
+### Upgrading
+
+```bash
+npx @agentmeter/cli@latest upgrade   # npx — no global install
+npm install -g @agentmeter/cli@latest && agentmeter upgrade  # global install
+```
+
+`upgrade` stops the service, reinstalls pointing at the new binary, and restarts. Config and sync state are preserved.
 
 ---
 

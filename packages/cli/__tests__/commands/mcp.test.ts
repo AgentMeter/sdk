@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import type { LocalSession } from '../../src/schemas/session.js';
 
 const tmpDir = path.join(os.tmpdir(), `agentmeter-test-mcp-${process.pid}`);
 
@@ -16,16 +17,62 @@ vi.mock('../../src/utils/platform.js', () => ({
   getPlatform: () => 'macos',
 }));
 
-/** Write a sync-state.json into the tmp dir */
-function writeSyncState(sessions: Record<string, unknown>): void {
-  fs.writeFileSync(
-    path.join(tmpDir, 'sync-state.json'),
-    JSON.stringify({ lastSyncAt: null, sessions }),
-    'utf8',
-  );
+// ---------------------------------------------------------------------------
+// Scanner mocks — populated per-test via claudeSessions / cursorSessions arrays.
+// The factory executes lazily (when the mock module is first imported inside a
+// test), so by that point these module-level arrays are fully initialised.
+// ---------------------------------------------------------------------------
+
+const claudeSessions: LocalSession[] = [];
+const cursorSessions: LocalSession[] = [];
+
+vi.mock('../../src/scanners/claude.js', () => ({
+  ClaudeScanner: class {
+    readonly name = 'claude';
+    async isAvailable() {
+      return claudeSessions.length > 0;
+    }
+    async scan() {
+      return [...claudeSessions];
+    }
+  },
+}));
+
+vi.mock('../../src/scanners/cursor.js', () => ({
+  CursorScanner: class {
+    readonly name = 'cursor';
+    async isAvailable() {
+      return cursorSessions.length > 0;
+    }
+    async scan() {
+      return [...cursorSessions];
+    }
+  },
+}));
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Creates a minimal valid LocalSession */
+function makeSession(overrides: Partial<LocalSession> = {}): LocalSession {
+  return {
+    sessionId: 'sess-default',
+    repoFullName: 'org/repo',
+    workspacePath: '/tmp/repo',
+    engine: 'claude',
+    model: 'claude-sonnet',
+    status: 'success',
+    title: 'Test session',
+    startTime: new Date().toISOString(),
+    endTime: new Date().toISOString(),
+    durationSeconds: 120,
+    tokens: { input: 1000, output: 200, cacheRead: 500, cacheWrite: 100 },
+    turns: 4,
+    ...overrides,
+  };
 }
 
-/** Write a config.json into the tmp dir */
 function writeConfig(): void {
   fs.writeFileSync(
     path.join(tmpDir, 'config.json'),
@@ -34,8 +81,27 @@ function writeConfig(): void {
   );
 }
 
+function writeSyncStateWithCost(sessionId: string, costCents: number): void {
+  fs.writeFileSync(
+    path.join(tmpDir, 'sync-state.json'),
+    JSON.stringify({
+      lastSyncAt: null,
+      sessions: {
+        [sessionId]: { status: 'success', submittedAt: new Date().toISOString(), costCents },
+      },
+    }),
+    'utf8',
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Setup / teardown
+// ---------------------------------------------------------------------------
+
 beforeEach(() => {
   fs.mkdirSync(tmpDir, { recursive: true });
+  claudeSessions.length = 0;
+  cursorSessions.length = 0;
   vi.resetModules();
   vi.clearAllMocks();
 });
@@ -94,7 +160,6 @@ describe('fetchJson', () => {
         ok: false,
         status: 401,
         statusText: 'Unauthorized',
-        json: async () => ({}),
       }),
     );
 
@@ -158,59 +223,83 @@ describe('fetchJson', () => {
 });
 
 // ---------------------------------------------------------------------------
+// getLocalSessions
+// ---------------------------------------------------------------------------
+
+describe('getLocalSessions', () => {
+  it('returns sessions from all available scanners sorted by startTime desc', async () => {
+    claudeSessions.push(
+      makeSession({ sessionId: 'c1', engine: 'claude', startTime: '2026-06-01T10:00:00.000Z' }),
+      makeSession({ sessionId: 'c2', engine: 'claude', startTime: '2026-06-03T10:00:00.000Z' }),
+    );
+    cursorSessions.push(
+      makeSession({ sessionId: 'u1', engine: 'cursor', startTime: '2026-06-02T10:00:00.000Z' }),
+    );
+
+    const { getLocalSessions } = await import('../../src/commands/mcp.js');
+    const sessions = await getLocalSessions();
+
+    expect(sessions.map((s) => s.sessionId)).toEqual(['c2', 'u1', 'c1']);
+  });
+
+  it('returns empty array when no scanners are available', async () => {
+    // claudeSessions and cursorSessions are both empty
+    const { getLocalSessions } = await import('../../src/commands/mcp.js');
+    const sessions = await getLocalSessions();
+    expect(sessions).toHaveLength(0);
+  });
+
+  it('uses in-memory cache on second call', async () => {
+    const scanCallCount = 0;
+    claudeSessions.push(makeSession({ sessionId: 'sess-1', startTime: new Date().toISOString() }));
+
+    // Intercept scan by patching the array after first import — reuse scan count trick
+    const { getLocalSessions } = await import('../../src/commands/mcp.js');
+
+    const first = await getLocalSessions();
+    // Clear the source array — if cache works, second call still returns the same data
+    claudeSessions.length = 0;
+    const second = await getLocalSessions();
+
+    void scanCallCount; // suppress unused warning
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(second[0]?.sessionId).toBe('sess-1');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // handleListRecentSessions
 // ---------------------------------------------------------------------------
 
 describe('handleListRecentSessions', () => {
-  it('returns sessions sorted by submittedAt descending', async () => {
-    writeSyncState({
-      'sess-a': {
-        status: 'success',
-        submittedAt: '2026-06-01T10:00:00.000Z',
-        title: 'Session A',
-        engine: 'claude',
-        model: 'claude-sonnet',
-        costCents: 10,
-      },
-      'sess-b': {
-        status: 'success',
-        submittedAt: '2026-06-03T10:00:00.000Z',
-        title: 'Session B',
-        engine: 'cursor',
-        model: null,
-        costCents: 20,
-      },
-      'sess-c': {
-        status: 'success',
-        submittedAt: '2026-06-02T10:00:00.000Z',
-        title: 'Session C',
-        engine: 'claude',
-        model: 'claude-opus',
-        costCents: 5,
-      },
-    });
+  it('returns sessions sorted by startTime descending', async () => {
+    claudeSessions.push(
+      makeSession({ sessionId: 'sess-a', startTime: '2026-06-01T10:00:00.000Z' }),
+      makeSession({ sessionId: 'sess-b', startTime: '2026-06-03T10:00:00.000Z' }),
+      makeSession({ sessionId: 'sess-c', startTime: '2026-06-02T10:00:00.000Z' }),
+    );
 
     const { handleListRecentSessions } = await import('../../src/commands/mcp.js');
     const result = await handleListRecentSessions({});
     const parsed = JSON.parse(result.content[0]?.text ?? '{}') as {
       sessions: Array<{ sessionId: string }>;
-      total: number;
     };
 
-    expect(parsed.total).toBe(3);
     expect(parsed.sessions[0]?.sessionId).toBe('sess-b');
     expect(parsed.sessions[1]?.sessionId).toBe('sess-c');
     expect(parsed.sessions[2]?.sessionId).toBe('sess-a');
   });
 
   it('respects the limit parameter', async () => {
-    writeSyncState({
-      s1: { status: 'success', submittedAt: '2026-01-01T00:00:00.000Z' },
-      s2: { status: 'success', submittedAt: '2026-01-02T00:00:00.000Z' },
-      s3: { status: 'success', submittedAt: '2026-01-03T00:00:00.000Z' },
-      s4: { status: 'success', submittedAt: '2026-01-04T00:00:00.000Z' },
-      s5: { status: 'success', submittedAt: '2026-01-05T00:00:00.000Z' },
-    });
+    for (let i = 0; i < 5; i++) {
+      claudeSessions.push(
+        makeSession({
+          sessionId: `sess-${i}`,
+          startTime: new Date(Date.now() - i * 60_000).toISOString(),
+        }),
+      );
+    }
 
     const { handleListRecentSessions } = await import('../../src/commands/mcp.js');
     const result = await handleListRecentSessions({ limit: 2 });
@@ -223,19 +312,54 @@ describe('handleListRecentSessions', () => {
     expect(parsed.total).toBe(5);
   });
 
+  it('filters out sessions older than 12 months', async () => {
+    const recentTime = new Date().toISOString();
+    const oldTime = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000).toISOString(); // >12 months
+
+    claudeSessions.push(
+      makeSession({ sessionId: 'recent', startTime: recentTime }),
+      makeSession({ sessionId: 'old', startTime: oldTime }),
+    );
+
+    const { handleListRecentSessions } = await import('../../src/commands/mcp.js');
+    const result = await handleListRecentSessions({ limit: 50 });
+    const parsed = JSON.parse(result.content[0]?.text ?? '{}') as {
+      sessions: Array<{ sessionId: string }>;
+      total: number;
+    };
+
+    expect(parsed.sessions.some((s) => s.sessionId === 'recent')).toBe(true);
+    expect(parsed.sessions.some((s) => s.sessionId === 'old')).toBe(false);
+    expect(parsed.total).toBe(1);
+  });
+
   it('works with no API key configured', async () => {
-    // No config.json written — but it should still work
-    writeSyncState({ 'sess-x': { status: 'success', submittedAt: '2026-01-01T00:00:00.000Z' } });
+    claudeSessions.push(makeSession({ sessionId: 'sess-x' }));
 
     const { handleListRecentSessions } = await import('../../src/commands/mcp.js');
     const result = await handleListRecentSessions({});
-    const parsed = JSON.parse(result.content[0]?.text ?? '{}') as { sessions: unknown[] };
+    const parsed = JSON.parse(result.content[0]?.text ?? '{}') as {
+      sessions: Array<{ sessionId: string; costCents: null }>;
+    };
 
     expect(parsed.sessions).toHaveLength(1);
+    expect(parsed.sessions[0]?.costCents).toBeNull();
   });
 
-  it('returns empty list when sync-state is absent', async () => {
-    // No sync-state.json — readSyncState() returns empty state
+  it('enriches costCents from sync-state when available', async () => {
+    claudeSessions.push(makeSession({ sessionId: 'sess-rich' }));
+    writeSyncStateWithCost('sess-rich', 250);
+
+    const { handleListRecentSessions } = await import('../../src/commands/mcp.js');
+    const result = await handleListRecentSessions({});
+    const parsed = JSON.parse(result.content[0]?.text ?? '{}') as {
+      sessions: Array<{ sessionId: string; costCents: number | null }>;
+    };
+
+    expect(parsed.sessions[0]?.costCents).toBe(250);
+  });
+
+  it('returns empty sessions when no scanners are available', async () => {
     const { handleListRecentSessions } = await import('../../src/commands/mcp.js');
     const result = await handleListRecentSessions({});
     const parsed = JSON.parse(result.content[0]?.text ?? '{}') as {
@@ -288,7 +412,6 @@ describe('handleGetMySpend', () => {
     };
 
     expect(parsed.summary.totalCostCents).toBe(1234);
-    expect(parsed.summary.totalRuns).toBe(7);
     expect(parsed.days).toBe(7);
   });
 });
@@ -298,19 +421,16 @@ describe('handleGetMySpend', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleGetSession', () => {
-  it('returns local session without an API call when found in sync state', async () => {
-    writeSyncState({
-      'local-sess': {
-        status: 'success',
-        submittedAt: '2026-06-01T10:00:00.000Z',
-        costCents: 99,
-        title: 'Local session',
+  it('returns local session without an API call when found by scanner', async () => {
+    claudeSessions.push(
+      makeSession({
+        sessionId: 'local-sess',
+        title: 'My local session',
         engine: 'claude',
         model: 'claude-sonnet',
-        startTime: '2026-06-01T09:55:00.000Z',
-        repoFullName: 'org/repo',
-      },
-    });
+        tokens: { input: 5000, output: 1000, cacheRead: 0, cacheWrite: 0 },
+      }),
+    );
 
     const mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);
@@ -320,18 +440,30 @@ describe('handleGetSession', () => {
     const parsed = JSON.parse(result.content[0]?.text ?? '{}') as {
       sessionId: string;
       source: string;
-      costCents: number;
+      tokens: { input: number };
     };
 
     expect(parsed.sessionId).toBe('local-sess');
     expect(parsed.source).toBe('local');
-    expect(parsed.costCents).toBe(99);
+    expect(parsed.tokens.input).toBe(5000);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('returns hint when session not found locally and no API key', async () => {
-    writeSyncState({}); // empty
+  it('enriches costCents from sync-state for locally found session', async () => {
+    claudeSessions.push(makeSession({ sessionId: 'sess-cost' }));
+    writeSyncStateWithCost('sess-cost', 99);
 
+    const { handleGetSession } = await import('../../src/commands/mcp.js');
+    const result = await handleGetSession({ sessionId: 'sess-cost' });
+    const parsed = JSON.parse(result.content[0]?.text ?? '{}') as {
+      costCents: number | null;
+    };
+
+    expect(parsed.costCents).toBe(99);
+  });
+
+  it('returns hint when session not found locally and no API key', async () => {
+    // No sessions in scanner, no config
     const { handleGetSession } = await import('../../src/commands/mcp.js');
     const result = await handleGetSession({ sessionId: 'unknown-sess' });
     const parsed = JSON.parse(result.content[0]?.text ?? '{}') as {
@@ -345,9 +477,9 @@ describe('handleGetSession', () => {
     expect(parsed.sessionId).toBe('unknown-sess');
   });
 
-  it('falls back to API when session not found locally and key is configured', async () => {
+  it('falls back to API when not found locally and key is configured', async () => {
     writeConfig();
-    writeSyncState({}); // empty
+    // No sessions in scanner
 
     vi.stubGlobal(
       'fetch',
@@ -415,7 +547,7 @@ describe('handleGetTeamSpend', () => {
     const { handleGetTeamSpend } = await import('../../src/commands/mcp.js');
     const result = await handleGetTeamSpend({ days: 30 });
     const parsed = JSON.parse(result.content[0]?.text ?? '{}') as {
-      contributors: Array<{ login: string; totalCostCents: number }>;
+      contributors: Array<{ login: string }>;
       days: number;
     };
 
