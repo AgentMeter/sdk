@@ -395,7 +395,7 @@ export async function handleGetTeamSpend({
 async function startMcpServer(): Promise<void> {
   const server = new McpServer(
     { name: 'agentmeter', version: '1.0.0' },
-    { capabilities: { tools: {} } },
+    { capabilities: { prompts: {}, tools: {} } },
   );
 
   server.tool(
@@ -463,6 +463,58 @@ async function startMcpServer(): Promise<void> {
         .describe('Number of days to look back (default 30)'),
     },
     async ({ days = 30 }) => handleGetTeamSpend({ days }),
+  );
+
+  // -------------------------------------------------------------------------
+  // Prompts — surfaced as slash commands in MCP clients (e.g. /mcp__agentmeter__sessions)
+  // -------------------------------------------------------------------------
+
+  server.prompt(
+    'sessions',
+    'Show your recent AI coding sessions — token usage, duration, model, and repo',
+    {
+      limit: z.string().optional().describe('Number of sessions to show (1–50, default 10)'),
+    },
+    async ({ limit }) => {
+      const limitNum = limit ? Math.min(50, Math.max(1, Number.parseInt(limit, 10) || 10)) : 10;
+      const result = await handleListRecentSessions({ limit: limitNum });
+      const data = result.content[0]?.text ?? '{}';
+      return {
+        messages: [
+          {
+            role: 'user' as const,
+            content: {
+              type: 'text' as const,
+              text: `Here are my ${limitNum} most recent AI coding sessions:\n\n${data}\n\nPlease summarise what I have been working on, call out any sessions that used an unusually high number of tokens, and give me the total token count across all sessions shown.`,
+            },
+          },
+        ],
+      };
+    },
+  );
+
+  server.prompt(
+    'spend',
+    'Show your AI coding spend summary and daily breakdown (requires AgentMeter account)',
+    {
+      days: z.string().optional().describe('Number of days to look back (default 7)'),
+    },
+    async ({ days }) => {
+      const daysNum = days ? Math.min(365, Math.max(1, Number.parseInt(days, 10) || 7)) : 7;
+      const result = await handleGetMySpend({ days: daysNum });
+      const data = result.content[0]?.text ?? '{}';
+      return {
+        messages: [
+          {
+            role: 'user' as const,
+            content: {
+              type: 'text' as const,
+              text: `Here is my AI coding spend data for the last ${daysNum} day${daysNum === 1 ? '' : 's'}:\n\n${data}\n\nPlease summarise my spending trends, highlight any notable spikes or patterns, and give me a sense of whether my usage is tracking high or low.`,
+            },
+          },
+        ],
+      };
+    },
   );
 
   const transport = new StdioServerTransport();
