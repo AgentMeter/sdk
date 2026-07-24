@@ -71,3 +71,65 @@ describe('sync-state service', () => {
     expect(fs.existsSync(syncStatePath)).toBe(true);
   });
 });
+
+describe('trimSyncState', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('removes completed sessions older than 90 days', async () => {
+    const { trimSyncState } = await import('../../src/services/sync-state.js');
+
+    const old = new Date(Date.now() - 91 * 24 * 60 * 60 * 1000).toISOString();
+    const recent = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+
+    const result = trimSyncState({
+      lastSyncAt: null,
+      sessions: {
+        'old-sess': { status: 'success', submittedAt: old },
+        'recent-sess': { status: 'success', submittedAt: recent },
+      },
+    });
+
+    expect(result.sessions['old-sess']).toBeUndefined();
+    expect(result.sessions['recent-sess']).toBeDefined();
+  });
+
+  it('always keeps running sessions regardless of age', async () => {
+    const { trimSyncState } = await import('../../src/services/sync-state.js');
+
+    const old = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString();
+
+    const result = trimSyncState({
+      lastSyncAt: null,
+      sessions: {
+        'old-running': { status: 'running', submittedAt: old },
+        'old-done': { status: 'success', submittedAt: old },
+      },
+    });
+
+    expect(result.sessions['old-running']).toBeDefined();
+    expect(result.sessions['old-done']).toBeUndefined();
+  });
+
+  it('keeps the most recent sessions when count cap is hit', async () => {
+    const { trimSyncState } = await import('../../src/services/sync-state.js');
+
+    // Build 5002 recent completed sessions — 2 should be trimmed
+    const sessions: Record<string, { status: 'success'; submittedAt: string }> = {};
+    for (let i = 0; i < 5002; i++) {
+      const ts = new Date(Date.now() - i * 60_000).toISOString(); // 1 min apart, newest first
+      sessions[`sess-${i}`] = { status: 'success', submittedAt: ts };
+    }
+
+    const result = trimSyncState({ lastSyncAt: null, sessions });
+    const kept = Object.keys(result.sessions);
+
+    expect(kept).toHaveLength(5000);
+    // The 2 oldest (sess-5000, sess-5001) should be gone
+    expect(result.sessions['sess-5000']).toBeUndefined();
+    expect(result.sessions['sess-5001']).toBeUndefined();
+    // The newest should be kept
+    expect(result.sessions['sess-0']).toBeDefined();
+  });
+});
