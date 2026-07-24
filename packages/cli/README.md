@@ -38,6 +38,15 @@ Add to your MCP client config and start asking questions. The server scans your 
 
 The first call scans your local data (takes a moment). Subsequent calls within 60 seconds return instantly from the in-memory cache.
 
+### Slash commands
+
+Once connected, these are available as slash commands in your AI agent:
+
+| Command | Description |
+|---------|-------------|
+| `/mcp__agentmeter__sessions` | Show recent sessions — token usage, duration, model. Optional: `limit` |
+| `/mcp__agentmeter__spend` | Show spend summary and daily breakdown (requires account). Optional: `days` |
+
 ### Available tools (no account needed)
 
 | Tool | Description |
@@ -104,6 +113,46 @@ Example questions unlocked with an account:
 > "How much have I spent on Claude Code this week?"
 > "What's my average cost per session this month?"
 > "Show me my team's AI spend for the last 30 days."
+
+---
+
+## Updating
+
+**Using `npx` (default config):** npx caches the package. To always resolve the latest version, use `@latest` in your config args:
+
+```json
+{
+  "mcpServers": {
+    "agentmeter": {
+      "command": "npx",
+      "args": ["@agentmeter/cli@latest", "mcp"]
+    }
+  }
+}
+```
+
+**Using a global install** (faster startup, explicit updates):
+
+```bash
+npm install -g @agentmeter/cli
+```
+
+Then use `agentmeter` as the command directly:
+
+```json
+{
+  "mcpServers": {
+    "agentmeter": {
+      "command": "agentmeter",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+To update: `npm install -g @agentmeter/cli@latest`
+
+**After updating:** restart your MCP client (Claude Code, Cursor) — MCP servers are not hot-reloaded.
 
 ---
 
