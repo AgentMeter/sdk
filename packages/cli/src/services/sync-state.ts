@@ -2,12 +2,15 @@ import fs from 'node:fs';
 import { type SyncState, SyncStateSchema } from '../schemas/sync-state.js';
 import { getAgentMeterDir, getSyncStatePath } from '../utils/platform.js';
 
-/** Sessions older than this (by submittedAt) are eligible for trimming */
-const MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
-
 /**
  * Maximum number of completed sessions to retain in sync-state.json.
  * Running sessions are always kept regardless of this cap.
+ *
+ * No time-based cutoff is applied: the Claude Code scanner re-reads all JSONL
+ * files on every run, so age-based trimming would cause old sessions to be
+ * re-submitted as "new" on the next sync — generating noise and extra API calls.
+ * A count cap is sufficient: at ~500 bytes/entry this allows up to ~2.5 MB,
+ * which parses in milliseconds.
  */
 const MAX_COMPLETED_SESSIONS = 5_000;
 
@@ -32,12 +35,14 @@ export function readSyncState(): SyncState {
 }
 
 /**
- * Trims a sync state to remove completed sessions that are older than MAX_AGE_MS
- * or exceed MAX_COMPLETED_SESSIONS (keeping the most recent). Running sessions
- * are always preserved for vanished-session detection.
+ * Trims a sync state so it never exceeds MAX_COMPLETED_SESSIONS completed entries.
+ * The most recently submitted sessions are kept. Running sessions are always
+ * preserved regardless of the cap — they are needed for vanished-session detection.
  *
- * Trimmed sessions may be re-discovered on the next scan and re-submitted to the
- * API, where they will receive a 409 duplicate response that is handled gracefully.
+ * Trimmed sessions may be re-discovered by the scanner and re-submitted. The API
+ * is idempotent for known session IDs (it updates rather than duplicates), so
+ * re-submissions are safe. The count cap is chosen so re-submissions are rare
+ * in practice: a heavy user doing 20 sessions/day takes ~8 months to hit 5,000.
  */
 export function trimSyncState(state: SyncState): SyncState {
   const entries = Object.entries(state.sessions);
@@ -52,15 +57,17 @@ export function trimSyncState(state: SyncState): SyncState {
     }
   }
 
-  const cutoff = new Date(Date.now() - MAX_AGE_MS).toISOString();
-  const recent = completed
-    .filter(([, s]) => (s?.submittedAt ?? '') >= cutoff)
+  if (completed.length <= MAX_COMPLETED_SESSIONS) {
+    return state;
+  }
+
+  const kept = completed
     .sort(([, a], [, b]) => (b?.submittedAt ?? '').localeCompare(a?.submittedAt ?? ''))
     .slice(0, Math.max(0, MAX_COMPLETED_SESSIONS - running.length));
 
   return {
     ...state,
-    sessions: Object.fromEntries([...running, ...recent]),
+    sessions: Object.fromEntries([...running, ...kept]),
   };
 }
 

@@ -77,39 +77,38 @@ describe('trimSyncState', () => {
     vi.resetModules();
   });
 
-  it('removes completed sessions older than 90 days', async () => {
+  it('returns state unchanged when under the cap', async () => {
     const { trimSyncState } = await import('../../src/services/sync-state.js');
 
-    const old = new Date(Date.now() - 91 * 24 * 60 * 60 * 1000).toISOString();
-    const recent = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
-
-    const result = trimSyncState({
+    const state = {
       lastSyncAt: null,
       sessions: {
-        'old-sess': { status: 'success', submittedAt: old },
-        'recent-sess': { status: 'success', submittedAt: recent },
+        s1: { status: 'success' as const, submittedAt: '2026-01-01T00:00:00.000Z' },
+        s2: { status: 'success' as const, submittedAt: '2026-01-02T00:00:00.000Z' },
       },
-    });
+    };
 
-    expect(result.sessions['old-sess']).toBeUndefined();
-    expect(result.sessions['recent-sess']).toBeDefined();
+    const result = trimSyncState(state);
+    expect(result).toBe(state); // same reference — no copy made
   });
 
-  it('always keeps running sessions regardless of age', async () => {
+  it('always keeps running sessions regardless of count', async () => {
     const { trimSyncState } = await import('../../src/services/sync-state.js');
 
-    const old = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString();
+    // Build MAX+1 completed sessions plus one running
+    const sessions: Record<string, { status: 'success' | 'running'; submittedAt: string }> = {};
+    for (let i = 0; i < 5001; i++) {
+      sessions[`sess-${i}`] = {
+        status: 'success',
+        submittedAt: new Date(Date.now() - i * 60_000).toISOString(),
+      };
+    }
+    sessions['running-sess'] = { status: 'running', submittedAt: new Date().toISOString() };
 
-    const result = trimSyncState({
-      lastSyncAt: null,
-      sessions: {
-        'old-running': { status: 'running', submittedAt: old },
-        'old-done': { status: 'success', submittedAt: old },
-      },
-    });
+    const { trimSyncState: trim } = await import('../../src/services/sync-state.js');
+    const result = trim({ lastSyncAt: null, sessions });
 
-    expect(result.sessions['old-running']).toBeDefined();
-    expect(result.sessions['old-done']).toBeUndefined();
+    expect(result.sessions['running-sess']).toBeDefined();
   });
 
   it('keeps the most recent sessions when count cap is hit', async () => {
