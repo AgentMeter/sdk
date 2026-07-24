@@ -301,6 +301,7 @@ async function submitAll({
       repoFullName: session.repoFullName,
       model: session.model,
       startTime: session.startTime,
+      tokens: session.tokens,
     };
 
     if (result.costCents) totalCostCents += result.costCents;

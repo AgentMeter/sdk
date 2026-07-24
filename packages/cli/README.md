@@ -1,122 +1,178 @@
 # @agentmeter/cli
 
-Track what your AI coding sessions actually cost. `@agentmeter/cli` scans your local Claude Code and Cursor session data, calculates per-session token costs, and syncs them to [AgentMeter](https://agentmeter.app?utm_source=github&utm_medium=readme-package-cli&utm_campaign=agentmeter-sdk) - giving you and your team a unified dashboard of AI spend across tools, projects, and engineers.
+Track what your AI coding sessions cost. Reads the session data that Claude Code and Cursor already write to your machine — token counts, model, duration, project — and exposes it as an MCP server your AI agent can query directly.
 
-No proxying. No API key sharing. The CLI reads session data that the agents already write to your machine.
+No account required. No setup beyond two lines of JSON.
 
-- **Claude Code** — parses JSONL conversation logs in `~/.claude/projects/`, extracting exact token counts from the recorded Anthropic API responses.
-- **Cursor** — reads the local SQLite state database across all three storage formats Cursor has used. Counts are approximate (Cursor is subscription-based and doesn't expose exact billing data locally).
+---
 
-Sessions are tracked by ID, so re-syncing is safe — existing records update rather than duplicate.
+## MCP server (no account needed)
 
-## Why
+Add to your MCP client config and start asking questions. The server scans your local Claude Code and Cursor data on demand — no prior sync, no background service, nothing to install first.
 
-Engineering teams are adopting AI coding agents faster than they can track the cost. Provider dashboards show an aggregate monthly number; they can't tell you which engineer, which project, or which task drove the spend. AgentMeter is the attribution layer - visibility before the bill arrives, not after.
+**Claude Code** — add to `~/.claude.json`:
 
-## Requirements
-
-- **Node.js 22.5+** — the Cursor scanner uses `node:sqlite`, built in as of 22.5.
-- **macOS or Linux** — full support including background service. On Windows, `sync` works manually but `install`/`uninstall` (launchd/systemd) do not.
-
-## Quick Start
-
-```bash
-# 1. Get your API key from https://agentmeter.app/settings/api-keys
-# 2. Initialize
-npx @agentmeter/cli init
-
-# 3. Sync once to confirm it works
-npx @agentmeter/cli sync --dry-run   # preview without sending
-npx @agentmeter/cli sync             # actually sync
-
-# 4. Install as a background service so it runs automatically
-npx @agentmeter/cli install
+```json
+{
+  "mcpServers": {
+    "agentmeter": {
+      "command": "npx",
+      "args": ["@agentmeter/cli", "mcp"]
+    }
+  }
+}
 ```
 
-## Getting your API key
+**Cursor** — add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (per-project):
 
-Sign in at [agentmeter.app](https://agentmeter.app) with GitHub and generate a **personal API key** under Settings → API Keys. Personal keys attribute sessions to you specifically, so your costs show up correctly in team views. (Org-level keys work too, but sessions submitted with them won't be attributed to an individual.)
+```json
+{
+  "mcpServers": {
+    "agentmeter": {
+      "command": "npx",
+      "args": ["@agentmeter/cli", "mcp"]
+    }
+  }
+}
+```
 
-## Commands
+The first call scans your local data (takes a moment). Subsequent calls within 60 seconds return instantly from the in-memory cache.
 
-| Command     | Description                             |
-| ----------- | --------------------------------------- |
-| `init`      | Configure API key and device name       |
-| `sync`      | One-time scan and upload                |
-| `watch`     | Background daemon mode (foreground loop) |
-| `install`   | Install as system service (macOS/Linux) |
-| `uninstall` | Remove system service                   |
-| `upgrade`   | Reinstall service from current binary   |
-| `status`    | Show service and sync health            |
+### Available tools (no account needed)
+
+| Tool | Description |
+|------|-------------|
+| `list_recent_sessions` | Sessions from the last 12 months, sorted newest first. Includes token counts (input/output/cache), duration, model, engine, and repo. `costCents` is populated if you have an AgentMeter account (see below). |
+| `get_session` | Look up a session by ID from local data. Same fields as above. Falls back to the AgentMeter API if not found locally (requires account). |
+
+Example questions your agent can answer with no account:
+
+> "Show me my last 10 Claude Code sessions."
+> "Which session used the most tokens this week?"
+> "What's my total token usage across the last 20 sessions?"
+> "Show me my recent Cursor sessions on the `my-app` repo."
+
+---
+
+## Unlock cost data, dashboards, and team visibility
+
+Connecting to [AgentMeter](https://agentmeter.app) gives you cost-per-session in dollars (not just tokens), a web dashboard, spend trends over time, and team-level visibility.
+
+### What you get
+
+- **`costCents` per session** — calculated by the API and returned to your local cache, so `list_recent_sessions` starts showing dollar costs too
+- **Web dashboard** — session history, per-repo breakdowns, model-level spend
+- **Spend trends** — daily and weekly charts queryable via MCP
+- **Team visibility** — connected engineers, session counts, and spend (Pro)
+
+### Connect in 30 seconds
+
+Sign in at [agentmeter.app](https://agentmeter.app) with GitHub, generate a personal API key under **Settings → API Keys**, then:
+
+```bash
+npx @agentmeter/cli init
+npx @agentmeter/cli sync      # submit your sessions and get cost data back
+npx @agentmeter/cli install   # keep it syncing automatically every 5 minutes
+```
+
+Or pass the key via your MCP config without running `init`:
+
+```json
+{
+  "mcpServers": {
+    "agentmeter": {
+      "command": "npx",
+      "args": ["@agentmeter/cli", "mcp"],
+      "env": {
+        "AGENTMETER_API_KEY": "am_sk_your_key_here"
+      }
+    }
+  }
+}
+```
+
+### Additional MCP tools with an account
+
+| Tool | Description |
+|------|-------------|
+| `get_session` (API fallback) | Fetches a session from the API when not in local data. |
+| `get_my_spend` | Spend summary + daily time series for the last N days. Returns `totalCostCents`, `totalRuns`, `avgCostPerRunCents`, and a per-day breakdown. |
+| `get_team_spend` | Per-contributor breakdown — `login`, `totalCostCents`, `totalRuns`, `connectionStatus`. Pro plan. |
+
+Example questions unlocked with an account:
+
+> "How much have I spent on Claude Code this week?"
+> "What's my average cost per session this month?"
+> "Show me my team's AI spend for the last 30 days."
+
+---
+
+## CLI reference
+
+The CLI is optional for MCP usage but required for background auto-sync and for submitting sessions to AgentMeter.
+
+### Requirements
+
+- **Node.js 22.5+** — the Cursor scanner uses `node:sqlite`, built in as of 22.5
+- **macOS or Linux** — full support. On Windows, `sync` works manually but `install`/`uninstall` do not
+
+### Commands
+
+| Command     | Description                                        |
+| ----------- | -------------------------------------------------- |
+| `mcp`       | Start MCP stdio server                             |
+| `sync`      | Scan local sessions and submit to AgentMeter       |
+| `install`   | Install as a system service (macOS/Linux)          |
+| `uninstall` | Remove the system service                          |
+| `watch`     | Run the sync loop in the foreground                |
+| `upgrade`   | Reinstall the service from the current binary      |
+| `status`    | Show service health and session counts             |
+| `init`      | Configure an AgentMeter API key                    |
 
 ### `sync` flags
 
 | Flag | Description |
 |---|---|
-| `--verbose` | Show each session's status (cost, duration, new/updated/unchanged) |
-| `--dry-run` | Show what would be submitted without sending anything |
-| `--since <date>` | Only sync sessions after this date (ISO 8601) |
-| `--engine <name>` | Only run a specific scanner (e.g. `claude`, `cursor`) |
+| `--verbose` | Show each session's status, cost, and duration |
+| `--dry-run` | Preview what would be submitted without sending anything |
+| `--since <date>` | Only include sessions after this date (ISO 8601) |
+| `--engine <name>` | Only run a specific scanner (`claude`, `cursor`) |
 
-### `watch` flags
+### Background service
 
-| Flag | Description |
+`install` sets up the CLI to sync every 5 minutes, survive reboots, and start on login.
+
+- **macOS** — installs a launchd agent (`~/Library/LaunchAgents/`)
+- **Linux** — installs a systemd user service
+
+```bash
+npx @agentmeter/cli status    # check it's running
+npx @agentmeter/cli uninstall # remove it (config and data are preserved)
+```
+
+### Upgrading
+
+```bash
+npx @agentmeter/cli@latest upgrade   # npx — no global install
+npm install -g @agentmeter/cli@latest && agentmeter upgrade  # global install
+```
+
+`upgrade` stops the service, reinstalls pointing at the new binary, and restarts. Config and sync state are preserved.
+
+---
+
+## Environment variables
+
+| Variable | Description |
 |---|---|
-| `--interval <seconds>` | Sync interval in seconds (default: 300) |
-
-## Running as a background service
-
-`install` sets up the CLI to sync automatically every 5 minutes, survive reboots, and start on login — so neither you nor your teammates have to remember to run it.
-
-- **macOS** — installs a launchd agent (`~/Library/LaunchAgents/`).
-- **Linux** — installs a systemd user service.
-
-Check it's healthy anytime:
-
-```bash
-npx @agentmeter/cli status
-```
-
-Remove it cleanly (config is preserved):
-
-```bash
-npx @agentmeter/cli uninstall
-```
-
-## Upgrading
-
-If you have the background service running and want to update to the latest version:
-
-**npx (no global install):**
-
-```bash
-npx @agentmeter/cli@latest upgrade
-```
-
-**Global install:**
-
-```bash
-npm install -g @agentmeter/cli@latest
-agentmeter upgrade
-```
-
-`upgrade` stops the current service, reinstalls it pointing at the new binary, and starts it again. Config and sync state are preserved.
-
-## For teams
-
-Rolling this out across a team? Add `npx @agentmeter/cli init` and
-`npx @agentmeter/cli install` to your onboarding script or setup docs. Each engineer uses their own personal API key, so the dashboard attributes spend per person automatically. The team admin can see coverage - who's set up and who hasn't - in the AgentMeter dashboard.
-
-## Environment Variables
-
-- `AGENTMETER_API_KEY` — overrides the API key in config
-- `AGENTMETER_API_URL` — overrides the API URL (useful for local dev)
+| `AGENTMETER_API_KEY` | API key — overrides the value in `~/.agentmeter/config.json` |
+| `AGENTMETER_API_URL` | Override the API base URL (useful for self-hosting or local dev) |
 
 ## Privacy
 
-AgentMeter stores session metadata and token counts — never your code, prompts, or conversation content. The CLI only extracts: token counts, model, timestamps, duration, project path, and the first line of the session as a title. Nothing else leaves your machine.
+AgentMeter stores session metadata and token counts — never your code, prompts, or conversation content. The CLI extracts: token counts, model, timestamps, duration, project path, and the first line of the session as a title. Nothing else leaves your machine.
 
-## Supported Agents
+## Supported agents
 
 | Agent       | Token data                          |
 | ----------- | ----------------------------------- |

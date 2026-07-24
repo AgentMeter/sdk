@@ -71,3 +71,64 @@ describe('sync-state service', () => {
     expect(fs.existsSync(syncStatePath)).toBe(true);
   });
 });
+
+describe('trimSyncState', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('returns state unchanged when under the cap', async () => {
+    const { trimSyncState } = await import('../../src/services/sync-state.js');
+
+    const state = {
+      lastSyncAt: null,
+      sessions: {
+        s1: { status: 'success' as const, submittedAt: '2026-01-01T00:00:00.000Z' },
+        s2: { status: 'success' as const, submittedAt: '2026-01-02T00:00:00.000Z' },
+      },
+    };
+
+    const result = trimSyncState(state);
+    expect(result).toBe(state); // same reference — no copy made
+  });
+
+  it('always keeps running sessions regardless of count', async () => {
+    const { trimSyncState } = await import('../../src/services/sync-state.js');
+
+    // Build MAX+1 completed sessions plus one running
+    const sessions: Record<string, { status: 'success' | 'running'; submittedAt: string }> = {};
+    for (let i = 0; i < 5001; i++) {
+      sessions[`sess-${i}`] = {
+        status: 'success',
+        submittedAt: new Date(Date.now() - i * 60_000).toISOString(),
+      };
+    }
+    sessions['running-sess'] = { status: 'running', submittedAt: new Date().toISOString() };
+
+    const { trimSyncState: trim } = await import('../../src/services/sync-state.js');
+    const result = trim({ lastSyncAt: null, sessions });
+
+    expect(result.sessions['running-sess']).toBeDefined();
+  });
+
+  it('keeps the most recent sessions when count cap is hit', async () => {
+    const { trimSyncState } = await import('../../src/services/sync-state.js');
+
+    // Build 5002 recent completed sessions — 2 should be trimmed
+    const sessions: Record<string, { status: 'success'; submittedAt: string }> = {};
+    for (let i = 0; i < 5002; i++) {
+      const ts = new Date(Date.now() - i * 60_000).toISOString(); // 1 min apart, newest first
+      sessions[`sess-${i}`] = { status: 'success', submittedAt: ts };
+    }
+
+    const result = trimSyncState({ lastSyncAt: null, sessions });
+    const kept = Object.keys(result.sessions);
+
+    expect(kept).toHaveLength(5000);
+    // The 2 oldest (sess-5000, sess-5001) should be gone
+    expect(result.sessions['sess-5000']).toBeUndefined();
+    expect(result.sessions['sess-5001']).toBeUndefined();
+    // The newest should be kept
+    expect(result.sessions['sess-0']).toBeDefined();
+  });
+});

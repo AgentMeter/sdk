@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import { initCommand } from './commands/init.js';
 import { installCommand } from './commands/install.js';
+import { mcpCommand } from './commands/mcp.js';
 import { statusCommand } from './commands/status.js';
 import { syncCommand } from './commands/sync.js';
 import { uninstallCommand } from './commands/uninstall.js';
@@ -25,5 +26,6 @@ program.addCommand(installCommand);
 program.addCommand(uninstallCommand);
 program.addCommand(upgradeCommand);
 program.addCommand(statusCommand);
+program.addCommand(mcpCommand);
 
 program.parse();
