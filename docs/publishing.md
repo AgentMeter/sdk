@@ -4,27 +4,21 @@ Releases are triggered by publishing a GitHub Release. The workflow automaticall
 
 ---
 
-## One-time setup
+## One-time setup — trusted publishing
 
-### 1. npm Automation token
+Publishing uses npm [trusted publishing](https://docs.npmjs.com/trusted-publishers/): GitHub Actions authenticates to npm with a short-lived OIDC credential, so there is **no `NPM_TOKEN` secret** to create, expire, or rotate, and every release gets a provenance attestation. (Granular tokens with bypass-2FA lose direct-publish access in January 2027.)
 
-> **TODO**: Replace with a dedicated `agentmeter-bot` npm account holding a no-expiry Classic Automation token. Invite the bot to the `agentmeter` org with publish permissions, generate the token from the bot account, and update `NPM_TOKEN` in GitHub Secrets. The current granular token expires in 90 days and must be manually rotated.
+On [npmjs.com](https://www.npmjs.com/package/@agentmeter/cli) → **Settings** → **Trusted Publisher** → **GitHub Actions**:
 
-1. Go to [npmjs.com](https://www.npmjs.com) → avatar → **Access Tokens** → **Generate New Token**
-2. Fill in the Granular Access Token form:
-   - **Bypass 2FA**: ✅ checked
-   - **Packages and scopes → Permissions**: Read and write
-   - **Select packages**: All packages (tighten to `@agentmeter/cli` after first publish)
-   - **Organizations**: No access
-3. Copy the token
+| Field | Value |
+|---|---|
+| Organization or user | `AgentMeter` |
+| Repository | `sdk` |
+| Workflow filename | `publish.yml` |
+| Environment | *(blank)* |
+| Allowed actions | ✅ `npm publish` |
 
-### 2. GitHub secret
-
-Repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
-
-| Name | Value |
-|------|-------|
-| `NPM_TOKEN` | the token from step 1 |
+The workflow needs `id-token: write` (already set) and npm CLI 11.5.1+ (installed in the job). `packages/cli/package.json` `repository` must match this repo for provenance.
 
 ---
 
@@ -40,12 +34,12 @@ Repo → **Settings** → **Secrets and variables** → **Actions** → **New re
 The `publish.yml` workflow fires automatically and:
 - Parses the release title to determine the bump type
 - Runs `npm version <type> --no-git-tag-version` in `packages/cli/`
-- Pushes a `chore: release @agentmeter/cli@x.y.z [skip ci]` commit back to `main`
 - Builds and publishes to npm
+- Pushes a `chore: release @agentmeter/cli@x.y.z [skip ci]` commit back to `main`
 
 ### If the publish step fails
 
-The workflow checks the npm token before bumping, so an expired or missing `NPM_TOKEN` fails without touching `main`. If a publish fails *after* the bump commit landed (`chore: release @agentmeter/cli@x.y.z`), don't re-run the release job or cut a new release — re-running would try to bump and push again, and a new release would skip a version. Instead, fix the cause (e.g. rotate `NPM_TOKEN`) and publish the version already on `main`:
+The bump commit is only pushed after a successful publish, so a failed publish leaves `main` untouched — fix the cause (usually the trusted publisher config on npmjs.com) and re-run the job. If `main` already has an unpublished version (e.g. from an older workflow), publish it without bumping:
 
 ```bash
 gh workflow run publish.yml --ref main
