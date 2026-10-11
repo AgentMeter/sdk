@@ -3,12 +3,15 @@ name: Publish to npm
 on:
   release:
     types: [published]
-  # Publishes the version already on main without bumping — use to recover when the
-  # bump commit landed but `pnpm publish` failed (e.g. expired NPM_TOKEN).
+  # Publishes the version already on main without bumping — use to recover when a
+  # release's publish step failed.
   workflow_dispatch:
 
 permissions:
   contents: write
+  # Trusted publishing: npm exchanges the GitHub OIDC token for a short-lived publish
+  # credential, so no NPM_TOKEN secret is needed.
+  id-token: write
 
 jobs:
   publish:
@@ -23,17 +26,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
-          cache: "pnpm"
+
+      # Trusted publishing needs npm CLI 11.5.1+
+      - run: npm install -g npm@latest
 
       - run: pnpm install --frozen-lockfile
-
-      # Fail before the version bump is pushed if the npm token is missing or expired.
-      - name: Verify npm token
-        run: npm whoami
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # Parse the release title as a conventional commit to determine bump type:
       #   feat!: / BREAKING CHANGE  → major
@@ -61,6 +60,14 @@ jobs:
           NEW_VERSION=$(npm version ${{ steps.bump.outputs.type }} --no-git-tag-version)
           echo "version=${NEW_VERSION#v}" >> $GITHUB_OUTPUT
 
+      - name: Build
+        run: pnpm --filter @agentmeter/cli build
+
+      # Publish before pushing the bump so a failed publish leaves main untouched.
+      - name: Publish to npm
+        working-directory: packages/cli
+        run: npm publish --access public
+
       - name: Commit and push version bump
         if: github.event_name == 'release'
         run: |
@@ -69,12 +76,3 @@ jobs:
           git add packages/cli/package.json
           git commit -m "chore: release @agentmeter/cli@${{ steps.version.outputs.version }} [skip ci]"
           git push origin HEAD:main
-
-      - name: Build
-        run: pnpm --filter @agentmeter/cli build
-
-      - name: Publish to npm
-        working-directory: packages/cli
-        run: pnpm publish --no-git-checks --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
