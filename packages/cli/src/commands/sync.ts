@@ -4,13 +4,13 @@ import { ClaudeScanner } from '../scanners/claude.js';
 import { CursorScanner } from '../scanners/cursor.js';
 import type { LocalSession } from '../schemas/session.js';
 import type { SyncState } from '../schemas/sync-state.js';
-import type { SubmitResult } from '../services/api.js';
 import { ApiClient } from '../services/api.js';
 import { getEffectiveConfig } from '../services/config.js';
 import { logger } from '../services/logger.js';
 import { readSyncState, writeSyncState } from '../services/sync-state.js';
-import { formatCost, formatDuration } from '../utils/format.js';
+import { formatDuration, formatTokens } from '../utils/format.js';
 import { resolveProjectApiKey } from '../utils/repo.js';
+import { sumTokens } from '../utils/tokens.js';
 
 /**
  * Runtime options for a sync run, controlling output and filtering
@@ -30,7 +30,7 @@ export interface SyncOptions {
 }
 
 /**
- * Aggregated counts and cost totals returned from a completed sync run
+ * Aggregated counts and token totals returned from a completed sync run
  */
 export interface SyncResult {
   /** Number of sessions that failed to submit */
@@ -42,8 +42,8 @@ export interface SyncResult {
   /** Number of sessions that were already up-to-date and skipped */
   skippedCount: number;
 
-  /** Sum of costCents across all successfully submitted sessions */
-  totalCostCents: number;
+  /** Sum of all token types across all successfully submitted sessions */
+  totalTokens: number;
 
   /** Number of sessions re-submitted because their status or endTime changed */
   updatedCount: number;
@@ -215,22 +215,18 @@ function printDryRun(toSync: Array<{ isNew: boolean; session: LocalSession }>): 
  */
 function printVerboseRow({
   isNew,
-  result,
   session,
 }: {
   /** Whether the session was newly created (true) or just updated (false) */
   isNew: boolean;
 
-  /** The API response for the submitted session */
-  result: SubmitResult;
-
   /** The session that was submitted */
   session: LocalSession;
 }): void {
   const label = isNew ? pc.green('[new]') : pc.yellow('[updated]');
-  const cost = result.costCents ? formatCost(result.costCents) : '—';
+  const tokens = `${formatTokens(sumTokens(session.tokens))} tokens`;
   console.log(
-    `  ${pc.green('✓')} ${session.sessionId}  ${session.title ?? '(no title)'}  ${session.model ?? 'unknown'}  ${cost}  ${formatDuration(session.durationSeconds)}  ${label}`,
+    `  ${pc.green('✓')} ${session.sessionId}  ${session.title ?? '(no title)'}  ${session.model ?? 'unknown'}  ${tokens}  ${formatDuration(session.durationSeconds)}  ${label}`,
   );
 }
 
@@ -257,13 +253,13 @@ async function submitAll({
 }): Promise<{
   errorCount: number;
   newCount: number;
-  totalCostCents: number;
+  totalTokens: number;
   updatedCount: number;
 }> {
   let newCount = 0;
   let updatedCount = 0;
   let errorCount = 0;
-  let totalCostCents = 0;
+  let totalTokens = 0;
 
   for (const { isNew, session } of toSync) {
     // Per-project .agentmeter.json may override the global API key — allows
@@ -294,7 +290,6 @@ async function submitAll({
     syncState.sessions[session.sessionId] = {
       status: session.status,
       submittedAt: new Date().toISOString(),
-      costCents: result.costCents ?? null,
       endTime: session.endTime ?? null,
       title: session.title ?? null,
       engine: session.engine,
@@ -304,26 +299,26 @@ async function submitAll({
       tokens: session.tokens,
     };
 
-    if (result.costCents) totalCostCents += result.costCents;
+    totalTokens += sumTokens(session.tokens);
     if (isNew) {
       newCount++;
     } else {
       updatedCount++;
     }
 
-    if (verbose) printVerboseRow({ isNew, result, session });
+    if (verbose) printVerboseRow({ isNew, session });
   }
 
-  return { errorCount, newCount, totalCostCents, updatedCount };
+  return { errorCount, newCount, totalTokens, updatedCount };
 }
 
 /**
- * Prints the final sync summary line with counts and total cost
+ * Prints the final sync summary line with counts and total tokens
  */
 function printSummary({
   newCount,
   skipped,
-  totalCostCents,
+  totalTokens,
   updatedCount,
   verbose,
 }: {
@@ -333,8 +328,8 @@ function printSummary({
   /** Sessions that were already up-to-date and skipped */
   skipped: LocalSession[];
 
-  /** Sum of costCents across all successfully submitted sessions */
-  totalCostCents: number;
+  /** Sum of all token types across all successfully submitted sessions */
+  totalTokens: number;
 
   /** Number of sessions re-submitted because their status or endTime changed */
   updatedCount: number;
@@ -346,7 +341,7 @@ function printSummary({
     for (const session of skipped) {
       console.log(
         pc.dim(
-          `  · ${session.sessionId}  ${session.title ?? '(no title)'}  ${session.model ?? 'unknown'}  —  —  [unchanged]`,
+          `  · ${session.sessionId}  ${session.title ?? '(no title)'}  ${session.model ?? 'unknown'}  ${formatTokens(sumTokens(session.tokens))} tokens  ${formatDuration(session.durationSeconds)}  [unchanged]`,
         ),
       );
     }
@@ -359,7 +354,7 @@ function printSummary({
   const total = newCount + updatedCount;
 
   console.log(pc.green(`✓ Synced ${total} session${total === 1 ? '' : 's'}${detail}`));
-  if (totalCostCents > 0) console.log(`  Total cost: ${formatCost(totalCostCents)}`);
+  if (totalTokens > 0) console.log(`  Total tokens: ${formatTokens(totalTokens)}`);
   if (skipped.length > 0) console.log(`  Skipped: ${skipped.length} (already synced)`);
 }
 
@@ -388,7 +383,7 @@ export async function runSync(options: Partial<SyncOptions> = {}): Promise<SyncR
 
   if (sessions.length === 0 && toSync.length === 0) {
     console.log(pc.yellow('No supported AI coding agents found on this machine.'));
-    return { errorCount: 0, newCount: 0, skippedCount: 0, totalCostCents: 0, updatedCount: 0 };
+    return { errorCount: 0, newCount: 0, skippedCount: 0, totalTokens: 0, updatedCount: 0 };
   }
 
   if (opts.dryRun) {
@@ -397,7 +392,7 @@ export async function runSync(options: Partial<SyncOptions> = {}): Promise<SyncR
       errorCount: 0,
       newCount: toSync.filter((s) => s.isNew).length,
       skippedCount: skipped.length,
-      totalCostCents: 0,
+      totalTokens: 0,
       updatedCount: toSync.filter((s) => !s.isNew).length,
     };
   }
@@ -410,13 +405,13 @@ export async function runSync(options: Partial<SyncOptions> = {}): Promise<SyncR
       errorCount: 0,
       newCount: 0,
       skippedCount: skipped.length,
-      totalCostCents: 0,
+      totalTokens: 0,
       updatedCount: 0,
     };
   }
 
   const api = new ApiClient(config);
-  const { errorCount, newCount, totalCostCents, updatedCount } = await submitAll({
+  const { errorCount, newCount, totalTokens, updatedCount } = await submitAll({
     api,
     syncState,
     toSync,
@@ -426,12 +421,12 @@ export async function runSync(options: Partial<SyncOptions> = {}): Promise<SyncR
   syncState.lastSyncAt = new Date().toISOString();
   writeSyncState(syncState);
 
-  printSummary({ newCount, skipped, totalCostCents, updatedCount, verbose: opts.verbose });
+  printSummary({ newCount, skipped, totalTokens, updatedCount, verbose: opts.verbose });
   logger.info(
     `Sync complete: ${newCount} new, ${updatedCount} updated, ${skipped.length} skipped, ${errorCount} errors`,
   );
 
-  return { errorCount, newCount, skippedCount: skipped.length, totalCostCents, updatedCount };
+  return { errorCount, newCount, skippedCount: skipped.length, totalTokens, updatedCount };
 }
 
 export const syncCommand = new Command('sync')

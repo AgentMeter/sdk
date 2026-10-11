@@ -1,6 +1,6 @@
 # @agentmeter/cli
 
-Track what your AI coding sessions cost. Reads the session data that Claude Code and Cursor already write to your machine — token counts, model, duration, project — and exposes it as an MCP server your AI agent can query directly.
+Track the tokens your AI coding sessions use. Reads the session data that Claude Code and Cursor already write to your machine — token counts, model, duration, project — and exposes it as an MCP server your AI agent can query directly.
 
 No account required. No setup beyond two lines of JSON.
 
@@ -44,7 +44,7 @@ The first call scans your local data (takes a moment). Subsequent calls within 6
 
 | Tool | Description |
 |------|-------------|
-| `list_recent_sessions` | Sessions from the last 12 months, sorted newest first. Includes token counts (input/output/cache), duration, model, engine, and repo. `costCents` is populated if you have an AgentMeter account (see below). |
+| `list_recent_sessions` | Sessions from the last 12 months, sorted newest first. Includes token counts (input/output/cache) and `totalTokens`, duration, turns, model, engine, and repo. `synced` shows whether the session is on your AgentMeter dashboard. |
 | `get_session` | Look up a session by ID from local data. Same fields as above. Falls back to the AgentMeter API if not found locally (requires account). |
 
 Example questions your agent can answer with no account:
@@ -56,16 +56,17 @@ Example questions your agent can answer with no account:
 
 ---
 
-## Unlock cost data, dashboards, and team visibility
+## Unlock dashboards, trends, and team visibility
 
-Connecting to [AgentMeter](https://agentmeter.app) gives you cost-per-session in dollars (not just tokens), a web dashboard, spend trends over time, and team-level visibility.
+Connecting to [AgentMeter](https://agentmeter.app) puts your sessions next to your CI agent runs in one dashboard, with token trends over time and team-level visibility.
+
+AgentMeter reports tokens, not dollars. Seat plans, subscriptions, and negotiated rates make list-price cost estimates wrong for most teams, so we don't show them.
 
 ### What you get
 
-- **`costCents` per session** — calculated by the API and returned to your local cache, so `list_recent_sessions` starts showing dollar costs too
-- **Web dashboard** — session history, per-repo breakdowns, model-level spend
-- **Spend trends** — daily and weekly charts queryable via MCP
-- **Team visibility** — connected engineers, session counts, and spend (Pro)
+- **Web dashboard** — session history, per-repo and per-model token breakdowns, outcomes and quality ratings
+- **Token trends** — daily usage by token type and cache hit rate, queryable via MCP (Pro)
+- **Team visibility** — connected engineers, session counts, and each person's share of team tokens (Pro)
 
 ### Connect in 30 seconds
 
@@ -73,7 +74,7 @@ Sign in at [agentmeter.app](https://agentmeter.app) with GitHub, generate a pers
 
 ```bash
 npx @agentmeter/cli init
-npx @agentmeter/cli sync      # submit your sessions and get cost data back
+npx @agentmeter/cli sync      # submit your sessions to the dashboard
 npx @agentmeter/cli install   # keep it syncing automatically every 5 minutes
 ```
 
@@ -97,15 +98,15 @@ Or pass the key via your MCP config without running `init`:
 
 | Tool | Description |
 |------|-------------|
-| `get_session` (API fallback) | Fetches a session from the API when not in local data. |
-| `get_my_spend` | Spend summary + daily time series for the last N days. Returns `totalCostCents`, `totalRuns`, `avgCostPerRunCents`, and a per-day breakdown. |
-| `get_team_spend` | Per-contributor breakdown — `login`, `totalCostCents`, `totalRuns`, `connectionStatus`. Pro plan. |
+| `get_session` (API fallback) | Fetches a session from the API when not in local data — by local session ID or AgentMeter run ID. |
+| `get_my_spend` | Token usage summary + daily time series for the last 7–90 days. Returns `totalTokens`, `totalRuns`, `avgTokensPerRun`, `cacheHitRate`, and a per-day breakdown by token type. Pro plan. |
+| `get_team_spend` | Per-contributor breakdown sorted by tokens — `login`, `totalTokens`, `runCount`, `avgTokensPerRun`, `tokenShareFraction`, `connectionStatus`. Pro plan. |
 
 Example questions unlocked with an account:
 
-> "How much have I spent on Claude Code this week?"
-> "What's my average cost per session this month?"
-> "Show me my team's AI spend for the last 30 days."
+> "How many tokens did I use this week, and what's my cache hit rate?"
+> "Which days this month had unusually heavy usage?"
+> "Who on my team used the most tokens in the last 30 days?"
 
 ---
 
@@ -175,7 +176,7 @@ The CLI is optional for MCP usage but required for background auto-sync and for 
 
 | Flag | Description |
 |---|---|
-| `--verbose` | Show each session's status, cost, and duration |
+| `--verbose` | Show each session's status, tokens, and duration |
 | `--dry-run` | Preview what would be submitted without sending anything |
 | `--since <date>` | Only include sessions after this date (ISO 8601) |
 | `--engine <name>` | Only run a specific scanner (`claude`, `cursor`) |

@@ -116,7 +116,7 @@ describe('runSync', () => {
       'fetch',
       vi.fn().mockResolvedValue({
         status: 200,
-        json: async () => ({ sessionId: 'vanished-session', costCents: 0 }),
+        json: async () => ({ id: 'run_1', totalCostCents: 0, totalTokens: 0, dashboardUrl: '' }),
       }),
     );
 
@@ -178,7 +178,7 @@ describe('runSync', () => {
       'fetch',
       vi.fn().mockResolvedValue({
         status: 201,
-        json: async () => ({ sessionId: 'my-session', costCents: 50 }),
+        json: async () => ({ id: 'run_1', totalCostCents: 0, totalTokens: 0, dashboardUrl: '' }),
       }),
     );
 
@@ -186,6 +186,7 @@ describe('runSync', () => {
     const result = await runSync({ verbose: false });
 
     expect(result.newCount).toBe(1);
+    expect(result.totalTokens).toBe(300);
     expect(vi.mocked(fetch)).toHaveBeenCalledOnce();
 
     // Sync state should be updated

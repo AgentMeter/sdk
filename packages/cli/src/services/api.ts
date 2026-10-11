@@ -1,4 +1,4 @@
-import { ApiSuccessResponseSchema, ValidateKeyResponseSchema } from '../schemas/api-response.js';
+import { ValidateKeyResponseSchema } from '../schemas/api-response.js';
 import type { Config } from '../schemas/config.js';
 import type { LocalSession } from '../schemas/session.js';
 import { withRetry } from '../utils/retry.js';
@@ -8,9 +8,6 @@ import { logger } from './logger.js';
  * Outcome of submitting a single session to POST /api/ingest/local
  */
 export interface SubmitResult {
-  /** Cost in cents returned by the API, or null if not yet calculated */
-  costCents: number | null;
-
   /** Error message when status is 'error' */
   error?: string;
 
@@ -177,7 +174,7 @@ export class ApiClient {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Network error';
       logger.error(`Failed to submit session ${session.sessionId}: ${message}`);
-      return { costCents: null, error: message, sessionId: session.sessionId, status: 'error' };
+      return { error: message, sessionId: session.sessionId, status: 'error' };
     }
 
     if (response.status === 401) {
@@ -185,13 +182,12 @@ export class ApiClient {
     }
 
     if (response.status === 409) {
-      return { costCents: null, sessionId: session.sessionId, status: 'duplicate' };
+      return { sessionId: session.sessionId, status: 'duplicate' };
     }
 
     if (response.status === 404) {
       logger.error(`Session ${session.sessionId} rejected: repo not found on server`);
       return {
-        costCents: null,
         error: 'Repo not found',
         sessionId: session.sessionId,
         status: 'error',
@@ -211,28 +207,16 @@ export class ApiClient {
         // Ignore parse error, use default message
       }
       logger.error(`Session ${session.sessionId} rejected: ${errorMsg}`);
-      return { costCents: null, error: errorMsg, sessionId: session.sessionId, status: 'error' };
+      return { error: errorMsg, sessionId: session.sessionId, status: 'error' };
     }
 
     if (response.status >= 500) {
       const message = `Server error: ${response.status}`;
       logger.error(`Failed to submit session ${session.sessionId}: ${message}`);
-      return { costCents: null, error: message, sessionId: session.sessionId, status: 'error' };
-    }
-
-    let costCents: number | null = null;
-    try {
-      const data: unknown = await response.json();
-      const result = ApiSuccessResponseSchema.safeParse(data);
-      if (result.success) {
-        costCents = result.data.costCents ?? null;
-      }
-    } catch {
-      // Response body is optional
+      return { error: message, sessionId: session.sessionId, status: 'error' };
     }
 
     return {
-      costCents,
       sessionId: session.sessionId,
       status: response.status === 201 ? 'created' : 'updated',
     };
