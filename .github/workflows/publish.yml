@@ -3,6 +3,9 @@ name: Publish to npm
 on:
   release:
     types: [published]
+  # Publishes the version already on main without bumping — use to recover when the
+  # bump commit landed but `pnpm publish` failed (e.g. expired NPM_TOKEN).
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -26,11 +29,18 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Fail before the version bump is pushed if the npm token is missing or expired.
+      - name: Verify npm token
+        run: npm whoami
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       # Parse the release title as a conventional commit to determine bump type:
       #   feat!: / BREAKING CHANGE  → major
       #   feat:                     → minor
       #   fix: / chore: / anything  → patch
       - name: Determine bump type
+        if: github.event_name == 'release'
         id: bump
         env:
           TITLE: ${{ github.event.release.name }}
@@ -44,6 +54,7 @@ jobs:
           fi
 
       - name: Bump version in package.json
+        if: github.event_name == 'release'
         id: version
         working-directory: packages/cli
         run: |
@@ -51,6 +62,7 @@ jobs:
           echo "version=${NEW_VERSION#v}" >> $GITHUB_OUTPUT
 
       - name: Commit and push version bump
+        if: github.event_name == 'release'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

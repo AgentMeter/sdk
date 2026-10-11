@@ -43,6 +43,14 @@ The `publish.yml` workflow fires automatically and:
 - Pushes a `chore: release @agentmeter/cli@x.y.z [skip ci]` commit back to `main`
 - Builds and publishes to npm
 
+### If the publish step fails
+
+The workflow checks the npm token before bumping, so an expired or missing `NPM_TOKEN` fails without touching `main`. If a publish fails *after* the bump commit landed (`chore: release @agentmeter/cli@x.y.z`), don't re-run the release job or cut a new release — re-running would try to bump and push again, and a new release would skip a version. Instead, fix the cause (e.g. rotate `NPM_TOKEN`) and publish the version already on `main`:
+
+```bash
+gh workflow run publish.yml --ref main
+```
+
 ---
 
 ## Conventional commit titles → semver bump
