@@ -8,6 +8,7 @@ import type { LocalSession } from '../schemas/session.js';
 import { getEffectiveConfig } from '../services/config.js';
 import { readSyncState } from '../services/sync-state.js';
 import { sumTokens } from '../utils/tokens.js';
+import { USER_AGENT } from '../utils/user-agent.js';
 
 // ---------------------------------------------------------------------------
 // Zod schemas for API response validation
@@ -229,6 +230,7 @@ export async function fetchJson<T>({
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
+        'User-Agent': USER_AGENT,
       },
     });
   } catch (err) {

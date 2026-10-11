@@ -176,6 +176,7 @@ describe('ApiClient', () => {
       const [_url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       const headers = init.headers as Record<string, string>;
       expect(headers.Authorization).toBe('Bearer am_sk_test123');
+      expect(headers['User-Agent']).toMatch(/^agentmeter-cli\/\d+\.\d+\.\d+/);
     });
 
     it('includes turns in the request body', async () => {

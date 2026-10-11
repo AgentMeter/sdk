@@ -2,6 +2,7 @@ import { ValidateKeyResponseSchema } from '../schemas/api-response.js';
 import type { Config } from '../schemas/config.js';
 import type { LocalSession } from '../schemas/session.js';
 import { withRetry } from '../utils/retry.js';
+import { USER_AGENT } from '../utils/user-agent.js';
 import { logger } from './logger.js';
 
 /**
@@ -63,6 +64,7 @@ export class ApiClient {
         headers: {
           Authorization: `Bearer ${this.config.apiKey}`,
           'Content-Type': 'application/json',
+          'User-Agent': USER_AGENT,
         },
       });
 
@@ -90,6 +92,7 @@ export class ApiClient {
         headers: {
           Authorization: `Bearer ${this.config.apiKey}`,
           'Content-Type': 'application/json',
+          'User-Agent': USER_AGENT,
         },
       });
     } catch {
@@ -156,6 +159,7 @@ export class ApiClient {
         headers: {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
+          'User-Agent': USER_AGENT,
         },
         body: JSON.stringify(body),
       });
