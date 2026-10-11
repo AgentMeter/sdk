@@ -4,7 +4,6 @@ import { TokensSchema } from './session.js';
 export const SyncedSessionSchema = z.object({
   status: z.enum(['running', 'success', 'failure', 'cancelled']),
   submittedAt: z.string(),
-  costCents: z.number().int().nullable().optional(),
   endTime: z.string().nullable().optional(),
   title: z.string().nullable().optional(),
   /** Stored so vanished RUNNING sessions can be reconstructed and closed on the next full sync */

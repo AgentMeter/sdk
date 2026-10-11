@@ -10,13 +10,6 @@ export function formatDuration(seconds: number | null): string {
 }
 
 /**
- * Formats a cost in cents as a dollar string
- */
-export function formatCost(costCents: number): string {
-  return `$${(costCents / 100).toFixed(2)}`;
-}
-
-/**
  * Formats a token count with K/M suffix for large values
  */
 export function formatTokens(n: number): string {

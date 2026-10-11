@@ -7,21 +7,27 @@ import { CursorScanner } from '../scanners/cursor.js';
 import type { LocalSession } from '../schemas/session.js';
 import { getEffectiveConfig } from '../services/config.js';
 import { readSyncState } from '../services/sync-state.js';
+import { sumTokens } from '../utils/tokens.js';
 
 // ---------------------------------------------------------------------------
 // Zod schemas for API response validation
 // ---------------------------------------------------------------------------
 
 const TrendsSummarySchema = z.object({
-  avgCostPerRunCents: z.number().nullable().optional(),
-  totalCostCents: z.number(),
+  avgTokensPerRun: z.number(),
+  cacheHitRate: z.number().nullable().optional(),
   totalRuns: z.number(),
+  totalTokens: z.number(),
 });
 
 const TimeSeriesItemSchema = z.object({
-  costCents: z.number(),
+  cacheReadTokens: z.number(),
+  cacheWriteTokens: z.number(),
   date: z.string(),
-  runs: z.number(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  runCount: z.number(),
+  totalTokens: z.number(),
 });
 
 const TrendsResponseSchema = z.object({
@@ -30,23 +36,54 @@ const TrendsResponseSchema = z.object({
 });
 
 const ContributorSchema = z.object({
+  avgTokensPerRun: z.number(),
   connectionStatus: z.string().optional(),
-  login: z.string(),
-  totalCostCents: z.number(),
-  totalRuns: z.number(),
+  githubLogin: z.string(),
+  lastActivityAt: z.string().nullable().optional(),
+  runCount: z.number(),
+  tokenShareFraction: z.number(),
+  totalTokens: z.number(),
 });
 
-const ContributorsResponseSchema = z.array(ContributorSchema);
+const ContributorsResponseSchema = z.object({
+  contributors: z.array(ContributorSchema),
+});
 
 const RunResponseSchema = z.object({
-  costCents: z.number().nullable().optional(),
+  completedAt: z.string().nullable().optional(),
   durationSeconds: z.number().nullable().optional(),
   engine: z.string().optional(),
+  id: z.string(),
+  localSessionId: z.string().nullable().optional(),
   model: z.string().nullable().optional(),
-  sessionId: z.string(),
+  repo: z.object({ fullName: z.string() }).nullable().optional(),
+  startedAt: z.string().optional(),
   status: z.string().optional(),
   title: z.string().nullable().optional(),
+  tokens: z
+    .object({
+      cacheReadTokens: z.number(),
+      cacheWriteTokens: z.number(),
+      inputTokens: z.number(),
+      isApproximate: z.boolean().optional(),
+      outputTokens: z.number(),
+      totalTokens: z.number(),
+    })
+    .nullable()
+    .optional(),
+  turns: z.number().nullable().optional(),
 });
+
+/** The API clamps `days` to this range on /api/trends and /api/contributors */
+const API_MIN_DAYS = 7;
+const API_MAX_DAYS = 90;
+
+/**
+ * Clamps a requested look-back window to the range the API actually serves
+ */
+function clampDays(days: number): number {
+  return Math.min(API_MAX_DAYS, Math.max(API_MIN_DAYS, days));
+}
 
 // ---------------------------------------------------------------------------
 // Local session scanning — with in-memory cache
@@ -119,21 +156,44 @@ function textResult(value: unknown): { content: [{ text: string; type: 'text' }]
 }
 
 /**
- * Reads sync-state and returns a sessionId → costCents map.
- * Returns an empty object if sync-state is absent or unreadable.
- * costCents is only present for sessions that have been submitted to AgentMeter.
+ * Reads sync-state and returns the set of session IDs already submitted to AgentMeter.
+ * Returns an empty set if sync-state is absent or unreadable.
  */
-function readCostMap(): Record<string, number | null> {
+function readSyncedIds(): Set<string> {
   try {
-    const state = readSyncState();
-    const map: Record<string, number | null> = {};
-    for (const [id, s] of Object.entries(state.sessions)) {
-      map[id] = s?.costCents ?? null;
-    }
-    return map;
+    return new Set(Object.keys(readSyncState().sessions));
   } catch {
-    return {};
+    return new Set();
   }
+}
+
+/**
+ * Shapes a locally scanned session for MCP output
+ */
+function toLocalSessionResult({
+  session,
+  syncedIds,
+}: {
+  /** Session from a local scanner */
+  session: LocalSession;
+  /** Session IDs already submitted to AgentMeter */
+  syncedIds: Set<string>;
+}): Record<string, unknown> {
+  return {
+    durationSeconds: session.durationSeconds,
+    endTime: session.endTime,
+    engine: session.engine,
+    model: session.model,
+    repoFullName: session.repoFullName,
+    sessionId: session.sessionId,
+    startTime: session.startTime,
+    status: session.status,
+    synced: syncedIds.has(session.sessionId),
+    title: session.title,
+    tokens: session.tokens,
+    totalTokens: sumTokens(session.tokens),
+    turns: session.turns,
+  };
 }
 
 /**
@@ -179,7 +239,23 @@ export async function fetchJson<T>({
   }
 
   if (!response.ok) {
-    return { ok: false, error: `API returned ${response.status} ${response.statusText}` };
+    let detail = '';
+    try {
+      const body: unknown = await response.json();
+      if (
+        body &&
+        typeof body === 'object' &&
+        typeof (body as { error?: unknown }).error === 'string'
+      ) {
+        detail = `: ${(body as { error: string }).error}`;
+      }
+    } catch {
+      // Error body is optional
+    }
+    return {
+      ok: false,
+      error: `API returned ${response.status} ${response.statusText}${detail}`,
+    };
   }
 
   let raw: unknown;
@@ -204,7 +280,7 @@ export async function fetchJson<T>({
 /**
  * Scans local Claude Code and Cursor data and returns the most recent sessions.
  * Results are filtered to the last 12 months and limited to `limit` entries.
- * costCents is enriched from sync-state when available (requires AgentMeter account).
+ * `synced` reflects whether the session has been submitted to AgentMeter.
  * No API key required.
  */
 export async function handleListRecentSessions({
@@ -225,29 +301,17 @@ export async function handleListRecentSessions({
   const cutoff = new Date(Date.now() - LIST_MAX_AGE_MS).toISOString();
   const recent = all.filter((s) => s.startTime >= cutoff);
 
-  const costMap = readCostMap();
-
-  const sessions = recent.slice(0, limit).map((s) => ({
-    costCents: costMap[s.sessionId] ?? null,
-    durationSeconds: s.durationSeconds,
-    endTime: s.endTime,
-    engine: s.engine,
-    model: s.model,
-    repoFullName: s.repoFullName,
-    sessionId: s.sessionId,
-    startTime: s.startTime,
-    status: s.status,
-    title: s.title,
-    tokens: s.tokens,
-    turns: s.turns,
-  }));
+  const syncedIds = readSyncedIds();
+  const sessions = recent
+    .slice(0, limit)
+    .map((session) => toLocalSessionResult({ session, syncedIds }));
 
   return textResult({ sessions, total: recent.length });
 }
 
 /**
- * Fetches spend summary and daily time series for the last `days` days.
- * Requires a valid AgentMeter API key.
+ * Fetches token usage summary and daily time series for the last `days` days.
+ * Requires a Pro plan and a valid AgentMeter API key.
  */
 export async function handleGetMySpend({
   days = 7,
@@ -260,10 +324,11 @@ export async function handleGetMySpend({
     return textResult({ error: 'AgentMeter API key required', hint: NO_API_KEY_HINT });
   }
 
+  const effectiveDays = clampDays(days);
   const result = await fetchJson({
     apiKey: config.apiKey,
     apiUrl: config.apiUrl,
-    path: `/api/trends?days=${days}`,
+    path: `/api/trends?days=${effectiveDays}`,
     schema: TrendsResponseSchema,
   });
 
@@ -272,11 +337,12 @@ export async function handleGetMySpend({
   }
 
   return textResult({
-    days,
+    days: effectiveDays,
     summary: {
-      avgCostPerRunCents: result.data.summary.avgCostPerRunCents ?? null,
-      totalCostCents: result.data.summary.totalCostCents,
+      avgTokensPerRun: result.data.summary.avgTokensPerRun,
+      cacheHitRate: result.data.summary.cacheHitRate ?? null,
       totalRuns: result.data.summary.totalRuns,
+      totalTokens: result.data.summary.totalTokens,
     },
     timeSeries: result.data.timeSeries,
   });
@@ -304,21 +370,9 @@ export async function handleGetSession({
   const local = all.find((s) => s.sessionId === sessionId);
 
   if (local) {
-    const costMap = readCostMap();
     return textResult({
-      costCents: costMap[sessionId] ?? null,
-      durationSeconds: local.durationSeconds,
-      endTime: local.endTime,
-      engine: local.engine,
-      model: local.model,
-      repoFullName: local.repoFullName,
-      sessionId: local.sessionId,
+      ...toLocalSessionResult({ session: local, syncedIds: readSyncedIds() }),
       source: 'local',
-      startTime: local.startTime,
-      status: local.status,
-      title: local.title,
-      tokens: local.tokens,
-      turns: local.turns,
     });
   }
 
@@ -342,20 +396,35 @@ export async function handleGetSession({
     return textResult({ error: result.error, sessionId });
   }
 
+  const run = result.data;
   return textResult({
-    costCents: result.data.costCents ?? null,
-    durationSeconds: result.data.durationSeconds ?? null,
-    engine: result.data.engine ?? null,
-    model: result.data.model ?? null,
-    sessionId: result.data.sessionId,
+    durationSeconds: run.durationSeconds ?? null,
+    endTime: run.completedAt ?? null,
+    engine: run.engine ?? null,
+    model: run.model ?? null,
+    repoFullName: run.repo?.fullName ?? null,
+    runId: run.id,
+    sessionId: run.localSessionId ?? run.id,
     source: 'api',
-    status: result.data.status ?? null,
-    title: result.data.title ?? null,
+    startTime: run.startedAt ?? null,
+    status: run.status?.toLowerCase() ?? null,
+    title: run.title ?? null,
+    tokens: run.tokens
+      ? {
+          cacheRead: run.tokens.cacheReadTokens,
+          cacheWrite: run.tokens.cacheWriteTokens,
+          input: run.tokens.inputTokens,
+          isApproximate: run.tokens.isApproximate ?? false,
+          output: run.tokens.outputTokens,
+        }
+      : null,
+    totalTokens: run.tokens?.totalTokens ?? null,
+    turns: run.turns ?? null,
   });
 }
 
 /**
- * Fetches per-contributor spend breakdown. Requires a Pro plan and a valid API key.
+ * Fetches per-contributor token usage breakdown. Requires a Pro plan and a valid API key.
  */
 export async function handleGetTeamSpend({
   days = 30,
@@ -368,10 +437,11 @@ export async function handleGetTeamSpend({
     return textResult({ error: 'AgentMeter API key required', hint: NO_API_KEY_HINT });
   }
 
+  const effectiveDays = clampDays(days);
   const result = await fetchJson({
     apiKey: config.apiKey,
     apiUrl: config.apiUrl,
-    path: `/api/contributors?days=${days}`,
+    path: `/api/contributors?days=${effectiveDays}&sortBy=totalTokens`,
     schema: ContributorsResponseSchema,
   });
 
@@ -379,7 +449,17 @@ export async function handleGetTeamSpend({
     return textResult({ error: result.error });
   }
 
-  return textResult({ contributors: result.data, days });
+  const contributors = result.data.contributors.map((c) => ({
+    avgTokensPerRun: c.avgTokensPerRun,
+    connectionStatus: c.connectionStatus ?? null,
+    lastActivityAt: c.lastActivityAt ?? null,
+    login: c.githubLogin,
+    runCount: c.runCount,
+    tokenShareFraction: c.tokenShareFraction,
+    totalTokens: c.totalTokens,
+  }));
+
+  return textResult({ contributors, days: effectiveDays });
 }
 
 // ---------------------------------------------------------------------------
@@ -402,8 +482,8 @@ async function startMcpServer(): Promise<void> {
     'list_recent_sessions',
     'List recent AI coding sessions scanned live from Claude Code and Cursor on this machine. ' +
       'Returns sessions from the last 12 months sorted by start time (newest first). ' +
-      'No API key required. Includes token counts (input/output/cache), duration, and model. ' +
-      'Cost in cents is included when sessions have been synced to AgentMeter (agentmeter.app). ' +
+      'No API key required. Includes token counts (input/output/cache) plus totalTokens, duration, turns, and model. ' +
+      '`synced` is true when the session has been submitted to AgentMeter (agentmeter.app). ' +
       'The first call may take a moment to scan local data; subsequent calls within 60 seconds are instant.',
     {
       limit: z
@@ -419,9 +499,10 @@ async function startMcpServer(): Promise<void> {
 
   server.tool(
     'get_my_spend',
-    'Fetch your AgentMeter spend summary and daily time series from the API. ' +
-      'Returns total cost, total runs, average cost per run, and a per-day breakdown. ' +
-      'Requires an AgentMeter API key (free tier available at https://agentmeter.app). ' +
+    'Fetch your AgentMeter token usage summary and daily time series from the API. ' +
+      'Returns total tokens, total runs, average tokens per run, cache hit rate, and a per-day token breakdown by type. ' +
+      'The API serves 7–90 days; other values are clamped. ' +
+      'Requires a Pro plan and an AgentMeter API key (https://agentmeter.app). ' +
       'If no key is configured, returns instructions on how to set one up.',
     {
       days: z
@@ -440,7 +521,7 @@ async function startMcpServer(): Promise<void> {
     'Look up a specific AI coding session by ID. ' +
       'Checks local Claude Code and Cursor data first (no API key needed); ' +
       'falls back to the AgentMeter API if not found locally (requires API key). ' +
-      'Returns cost, model, engine, status, title, tokens, and duration.',
+      'Returns tokens (by type and total), model, engine, status, title, turns, and duration.',
     {
       sessionId: z.string().describe('The session ID to look up'),
     },
@@ -449,8 +530,9 @@ async function startMcpServer(): Promise<void> {
 
   server.tool(
     'get_team_spend',
-    'Fetch per-contributor spend breakdown from the AgentMeter API. ' +
-      'Returns an array of contributors with total cost, total runs, and connection status. ' +
+    'Fetch per-contributor token usage from the AgentMeter API. ' +
+      'Returns contributors sorted by total tokens, with runs, average tokens per run, share of team tokens, and connection status. ' +
+      'The API serves 7–90 days; other values are clamped. ' +
       'Requires a Pro plan and a valid AgentMeter API key. ' +
       'If no key is configured, returns instructions on how to set one up.',
     {
@@ -495,7 +577,7 @@ async function startMcpServer(): Promise<void> {
 
   server.prompt(
     'spend',
-    'Show your AI coding spend summary and daily breakdown (requires AgentMeter account)',
+    'Show your AI coding token usage summary and daily breakdown (requires AgentMeter Pro)',
     {
       days: z.string().optional().describe('Number of days to look back (default 7)'),
     },
@@ -509,7 +591,7 @@ async function startMcpServer(): Promise<void> {
             role: 'user' as const,
             content: {
               type: 'text' as const,
-              text: `Here is my AI coding spend data for the last ${daysNum} day${daysNum === 1 ? '' : 's'}:\n\n${data}\n\nPlease summarise my spending trends, highlight any notable spikes or patterns, and give me a sense of whether my usage is tracking high or low.`,
+              text: `Here is my AI coding token usage for the last ${daysNum} day${daysNum === 1 ? '' : 's'}:\n\n${data}\n\nPlease summarise my token usage trends, highlight any notable spikes or patterns, comment on the cache hit rate, and give me a sense of whether my usage is tracking high or low.`,
             },
           },
         ],
@@ -522,10 +604,10 @@ async function startMcpServer(): Promise<void> {
 }
 
 /**
- * Commander command that starts an MCP stdio server exposing AgentMeter spend data
+ * Commander command that starts an MCP stdio server exposing AgentMeter token usage data
  */
 export const mcpCommand = new Command('mcp')
-  .description('Start an MCP stdio server for querying AgentMeter spend data')
+  .description('Start an MCP stdio server for querying AgentMeter token usage')
   .action(async () => {
     try {
       await startMcpServer();

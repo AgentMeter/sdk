@@ -1,12 +1,13 @@
 {
   "name": "@agentmeter/cli",
   "version": "1.1.1",
-  "description": "Track local AI coding agent session costs — Claude Code, Cursor, Codex",
+  "description": "Track local AI coding agent token usage — Claude Code, Cursor, Codex",
   "keywords": [
     "ai",
     "agent",
-    "cost",
     "tracking",
+    "token-usage",
+    "mcp",
     "claude-code",
     "cursor",
     "token",

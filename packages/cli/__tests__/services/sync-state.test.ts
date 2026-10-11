@@ -42,6 +42,7 @@ describe('sync-state service', () => {
         sess_abc123: {
           status: 'success' as const,
           submittedAt: '2026-06-08T14:30:00.000Z',
+          // Written by CLI versions before the token-only pivot; dropped on read
           costCents: 122,
         },
       },
@@ -52,7 +53,7 @@ describe('sync-state service', () => {
 
     expect(read.lastSyncAt).toBe('2026-06-08T14:30:00.000Z');
     expect(read.sessions.sess_abc123?.status).toBe('success');
-    expect(read.sessions.sess_abc123?.costCents).toBe(122);
+    expect(read.sessions.sess_abc123).not.toHaveProperty('costCents');
   });
 
   it('readSyncState returns empty state for corrupted file', async () => {

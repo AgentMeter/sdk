@@ -85,7 +85,12 @@ describe('ApiClient', () => {
         'fetch',
         vi.fn().mockResolvedValue({
           status: 201,
-          json: async () => ({ sessionId: 'sess_abc123', costCents: 122 }),
+          json: async () => ({
+            id: 'run_1',
+            totalCostCents: 0,
+            totalTokens: 1600,
+            dashboardUrl: '',
+          }),
         }),
       );
 
@@ -93,7 +98,7 @@ describe('ApiClient', () => {
       const result = await client.submitSession(mockSession);
 
       expect(result.status).toBe('created');
-      expect(result.costCents).toBe(122);
+      expect(result).not.toHaveProperty('costCents');
       expect(result.sessionId).toBe('sess_abc123');
     });
 
@@ -102,7 +107,12 @@ describe('ApiClient', () => {
         'fetch',
         vi.fn().mockResolvedValue({
           status: 200,
-          json: async () => ({ sessionId: 'sess_abc123', costCents: 87 }),
+          json: async () => ({
+            id: 'run_1',
+            totalCostCents: 0,
+            totalTokens: 1600,
+            dashboardUrl: '',
+          }),
         }),
       );
 
@@ -156,7 +166,7 @@ describe('ApiClient', () => {
     it('includes correct Authorization header', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         status: 201,
-        json: async () => ({ sessionId: 'sess_abc123', costCents: 100 }),
+        json: async () => ({ id: 'run_1', totalCostCents: 0, totalTokens: 1600, dashboardUrl: '' }),
       });
       vi.stubGlobal('fetch', mockFetch);
 
@@ -171,7 +181,7 @@ describe('ApiClient', () => {
     it('includes turns in the request body', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         status: 201,
-        json: async () => ({ sessionId: 'sess_abc123', costCents: 100 }),
+        json: async () => ({ id: 'run_1', totalCostCents: 0, totalTokens: 1600, dashboardUrl: '' }),
       });
       vi.stubGlobal('fetch', mockFetch);
 

@@ -2,7 +2,8 @@
 
 ## Project Overview
 A CLI tool that scans local AI coding agent session data (Claude Code, Cursor)
-and submits session cost data to the AgentMeter API. Published as @agentmeter/cli on npm.
+and submits session token usage to the AgentMeter API. Published as @agentmeter/cli on npm.
+AgentMeter measures tokens, not dollars — never add cost or pricing to CLI or MCP output.
 
 ## Tech Stack
 - Language: TypeScript (strict mode, ESM)
@@ -49,3 +50,6 @@ Test fixtures (sample JSONL files) live in packages/cli/__tests__/fixtures/.
 - Auth: `Authorization: Bearer <apiKey>`
 - Validate key: `GET /api/auth/me`
 - Submit session: `POST /api/ingest/local`
+- MCP tools (Bearer API key): `GET /api/trends`, `GET /api/contributors?sortBy=totalTokens`,
+  `GET /api/runs/:id` (run ID or local session ID). Trends and contributors are Pro-only and
+  clamp `days` to 7–90. The API still returns deprecated `*CostCents` fields — ignore them.

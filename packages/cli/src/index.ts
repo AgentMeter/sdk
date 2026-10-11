@@ -16,7 +16,7 @@ const program = new Command();
 
 program
   .name('agentmeter')
-  .description('Track local AI coding agent session costs — Claude Code, Cursor, and more')
+  .description('Track local AI coding agent token usage — Claude Code, Cursor, and more')
   .version(version);
 
 program.addCommand(initCommand);

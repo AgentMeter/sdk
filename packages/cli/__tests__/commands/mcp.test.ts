@@ -81,13 +81,14 @@ function writeConfig(): void {
   );
 }
 
-function writeSyncStateWithCost(sessionId: string, costCents: number): void {
+/** Writes a sync-state file marking the session as submitted (with a legacy costCents field) */
+function writeSyncedSession(sessionId: string): void {
   fs.writeFileSync(
     path.join(tmpDir, 'sync-state.json'),
     JSON.stringify({
       lastSyncAt: null,
       sessions: {
-        [sessionId]: { status: 'success', submittedAt: new Date().toISOString(), costCents },
+        [sessionId]: { status: 'success', submittedAt: new Date().toISOString(), costCents: 250 },
       },
     }),
     'utf8',
@@ -339,24 +340,27 @@ describe('handleListRecentSessions', () => {
     const { handleListRecentSessions } = await import('../../src/commands/mcp.js');
     const result = await handleListRecentSessions({});
     const parsed = JSON.parse(result.content[0]?.text ?? '{}') as {
-      sessions: Array<{ sessionId: string; costCents: null }>;
+      sessions: Array<Record<string, unknown>>;
     };
 
     expect(parsed.sessions).toHaveLength(1);
-    expect(parsed.sessions[0]?.costCents).toBeNull();
+    expect(parsed.sessions[0]?.synced).toBe(false);
+    expect(parsed.sessions[0]?.totalTokens).toBe(1800);
+    expect(parsed.sessions[0]).not.toHaveProperty('costCents');
   });
 
-  it('enriches costCents from sync-state when available', async () => {
+  it('marks sessions present in sync-state as synced, without exposing cost', async () => {
     claudeSessions.push(makeSession({ sessionId: 'sess-rich' }));
-    writeSyncStateWithCost('sess-rich', 250);
+    writeSyncedSession('sess-rich');
 
     const { handleListRecentSessions } = await import('../../src/commands/mcp.js');
     const result = await handleListRecentSessions({});
     const parsed = JSON.parse(result.content[0]?.text ?? '{}') as {
-      sessions: Array<{ sessionId: string; costCents: number | null }>;
+      sessions: Array<Record<string, unknown>>;
     };
 
-    expect(parsed.sessions[0]?.costCents).toBe(250);
+    expect(parsed.sessions[0]?.synced).toBe(true);
+    expect(parsed.sessions[0]).not.toHaveProperty('costCents');
   });
 
   it('returns empty sessions when no scanners are available', async () => {
@@ -389,30 +393,94 @@ describe('handleGetMySpend', () => {
     expect(parsed.hint).toMatch(/agentmeter/i);
   });
 
-  it('returns spend data when API key is present', async () => {
+  it('returns token usage from the /api/trends response shape and drops cost fields', async () => {
     writeConfig();
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          summary: { totalCostCents: 1234, totalRuns: 7, avgCostPerRunCents: 176 },
-          timeSeries: [{ date: '2026-06-01', costCents: 200, runs: 1 }],
-        }),
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        summary: {
+          avgCostPerRunCents: 176,
+          avgTokensPerRun: 50_000,
+          cacheHitRate: 0.8,
+          totalCostCents: 1234,
+          totalRuns: 7,
+          totalTokens: 350_000,
+        },
+        timeSeries: [
+          {
+            cacheReadTokens: 80_000,
+            cacheWriteTokens: 5_000,
+            date: '2026-06-01',
+            inputTokens: 10_000,
+            outputTokens: 5_000,
+            runCount: 1,
+            totalCostCents: 200,
+            totalTokens: 100_000,
+          },
+        ],
       }),
-    );
+    });
+    vi.stubGlobal('fetch', mockFetch);
 
     const { handleGetMySpend } = await import('../../src/commands/mcp.js');
     const result = await handleGetMySpend({ days: 7 });
     const parsed = JSON.parse(result.content[0]?.text ?? '{}') as {
-      summary: { totalCostCents: number; totalRuns: number };
       days: number;
+      summary: Record<string, unknown>;
+      timeSeries: Array<Record<string, unknown>>;
     };
 
-    expect(parsed.summary.totalCostCents).toBe(1234);
+    expect(parsed.summary).toEqual({
+      avgTokensPerRun: 50_000,
+      cacheHitRate: 0.8,
+      totalRuns: 7,
+      totalTokens: 350_000,
+    });
+    expect(parsed.timeSeries[0]?.totalTokens).toBe(100_000);
+    expect(parsed.timeSeries[0]).not.toHaveProperty('totalCostCents');
     expect(parsed.days).toBe(7);
+    expect(mockFetch.mock.calls[0]?.[0]).toBe('https://agentmeter.app/api/trends?days=7');
+  });
+
+  it('clamps days to the 7–90 range the API serves', async () => {
+    writeConfig();
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        summary: { avgTokensPerRun: 0, totalRuns: 0, totalTokens: 0 },
+        timeSeries: [],
+      }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { handleGetMySpend } = await import('../../src/commands/mcp.js');
+    const result = await handleGetMySpend({ days: 365 });
+    const parsed = JSON.parse(result.content[0]?.text ?? '{}') as { days: number };
+
+    expect(parsed.days).toBe(90);
+    expect(mockFetch.mock.calls[0]?.[0]).toBe('https://agentmeter.app/api/trends?days=90');
+  });
+
+  it('surfaces the API error message on non-2xx responses', async () => {
+    writeConfig();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        json: async () => ({ error: 'Pro plan required' }),
+      }),
+    );
+
+    const { handleGetMySpend } = await import('../../src/commands/mcp.js');
+    const result = await handleGetMySpend({});
+    const parsed = JSON.parse(result.content[0]?.text ?? '{}') as { error: string };
+
+    expect(parsed.error).toBe('API returned 403 Forbidden: Pro plan required');
   });
 });
 
@@ -449,17 +517,17 @@ describe('handleGetSession', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('enriches costCents from sync-state for locally found session', async () => {
-    claudeSessions.push(makeSession({ sessionId: 'sess-cost' }));
-    writeSyncStateWithCost('sess-cost', 99);
+  it('marks a locally found session as synced and includes totalTokens', async () => {
+    claudeSessions.push(makeSession({ sessionId: 'sess-synced' }));
+    writeSyncedSession('sess-synced');
 
     const { handleGetSession } = await import('../../src/commands/mcp.js');
-    const result = await handleGetSession({ sessionId: 'sess-cost' });
-    const parsed = JSON.parse(result.content[0]?.text ?? '{}') as {
-      costCents: number | null;
-    };
+    const result = await handleGetSession({ sessionId: 'sess-synced' });
+    const parsed = JSON.parse(result.content[0]?.text ?? '{}') as Record<string, unknown>;
 
-    expect(parsed.costCents).toBe(99);
+    expect(parsed.synced).toBe(true);
+    expect(parsed.totalTokens).toBe(1800);
+    expect(parsed).not.toHaveProperty('costCents');
   });
 
   it('returns hint when session not found locally and no API key', async () => {
@@ -481,34 +549,57 @@ describe('handleGetSession', () => {
     writeConfig();
     // No sessions in scanner
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          sessionId: 'remote-sess',
-          costCents: 42,
-          model: 'claude-sonnet',
-          engine: 'claude',
-          status: 'success',
-          title: 'Remote session',
-          durationSeconds: 120,
-        }),
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        completedAt: '2026-06-01T10:02:00.000Z',
+        durationSeconds: 120,
+        engine: 'claude',
+        id: 'run_123',
+        localSessionId: 'remote-sess',
+        model: 'claude-sonnet',
+        relatedRuns: [],
+        relatedTotalCostCents: 0,
+        repo: { fullName: 'org/repo', name: 'repo' },
+        startedAt: '2026-06-01T10:00:00.000Z',
+        status: 'SUCCESS',
+        title: 'Remote session',
+        tokens: {
+          cacheReadTokens: 300,
+          cacheWriteTokens: 100,
+          inputTokens: 1000,
+          isApproximate: false,
+          outputTokens: 200,
+          totalCostCents: 42,
+          totalTokens: 1600,
+        },
+        turns: 3,
       }),
-    );
+    });
+    vi.stubGlobal('fetch', mockFetch);
 
     const { handleGetSession } = await import('../../src/commands/mcp.js');
     const result = await handleGetSession({ sessionId: 'remote-sess' });
-    const parsed = JSON.parse(result.content[0]?.text ?? '{}') as {
-      sessionId: string;
-      source: string;
-      costCents: number;
-    };
+    const parsed = JSON.parse(result.content[0]?.text ?? '{}') as Record<string, unknown>;
 
-    expect(parsed.sessionId).toBe('remote-sess');
-    expect(parsed.source).toBe('api');
-    expect(parsed.costCents).toBe(42);
+    expect(parsed).toEqual({
+      durationSeconds: 120,
+      endTime: '2026-06-01T10:02:00.000Z',
+      engine: 'claude',
+      model: 'claude-sonnet',
+      repoFullName: 'org/repo',
+      runId: 'run_123',
+      sessionId: 'remote-sess',
+      source: 'api',
+      startTime: '2026-06-01T10:00:00.000Z',
+      status: 'success',
+      title: 'Remote session',
+      tokens: { cacheRead: 300, cacheWrite: 100, input: 1000, isApproximate: false, output: 200 },
+      totalTokens: 1600,
+      turns: 3,
+    });
+    expect(mockFetch.mock.calls[0]?.[0]).toBe('https://agentmeter.app/api/runs/remote-sess');
   });
 });
 
@@ -532,27 +623,51 @@ describe('handleGetTeamSpend', () => {
   it('returns contributor data when API key is present', async () => {
     writeConfig();
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => [
-          { login: 'alice', totalCostCents: 500, totalRuns: 10, connectionStatus: 'connected' },
-          { login: 'bob', totalCostCents: 200, totalRuns: 4, connectionStatus: 'connected' },
-        ],
+    /** Builds a contributor in the /api/contributors response shape */
+    const contributor = (githubLogin: string, totalTokens: number, runCount: number) => ({
+      avgCostPerRunCents: 50,
+      avgTokensPerRun: Math.round(totalTokens / runCount),
+      connectionStatus: 'connected',
+      githubLogin,
+      lastActivityAt: '2026-06-01T10:00:00.000Z',
+      lastPingAt: null,
+      role: 'MEMBER',
+      runCount,
+      teamShareFraction: 0.5,
+      tokenShareFraction: totalTokens / 1_000_000,
+      totalCostCents: 500,
+      totalTokens,
+    });
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        contributors: [contributor('alice', 800_000, 10), contributor('bob', 200_000, 4)],
+        coverage: { connectedMembers: 2, totalMembers: 2 },
       }),
-    );
+    });
+    vi.stubGlobal('fetch', mockFetch);
 
     const { handleGetTeamSpend } = await import('../../src/commands/mcp.js');
     const result = await handleGetTeamSpend({ days: 30 });
     const parsed = JSON.parse(result.content[0]?.text ?? '{}') as {
-      contributors: Array<{ login: string }>;
+      contributors: Array<Record<string, unknown>>;
       days: number;
     };
 
     expect(parsed.contributors).toHaveLength(2);
-    expect(parsed.contributors[0]?.login).toBe('alice');
+    expect(parsed.contributors[0]).toEqual({
+      avgTokensPerRun: 80_000,
+      connectionStatus: 'connected',
+      lastActivityAt: '2026-06-01T10:00:00.000Z',
+      login: 'alice',
+      runCount: 10,
+      tokenShareFraction: 0.8,
+      totalTokens: 800_000,
+    });
     expect(parsed.days).toBe(30);
+    expect(mockFetch.mock.calls[0]?.[0]).toBe(
+      'https://agentmeter.app/api/contributors?days=30&sortBy=totalTokens',
+    );
   });
 });

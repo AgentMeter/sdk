@@ -3,7 +3,7 @@ import pc from 'picocolors';
 import { ApiClient } from '../services/api.js';
 import { getEffectiveConfig } from '../services/config.js';
 import { setForegroundMode } from '../services/logger.js';
-import { formatCost } from '../utils/format.js';
+import { formatTokens } from '../utils/format.js';
 import { runSync } from './sync.js';
 
 const DEFAULT_INTERVAL_SECONDS = 300;
@@ -73,10 +73,11 @@ export const watchCommand = new Command('watch')
           if (result.updatedCount > 0) parts.push(`${result.updatedCount} updated`);
           const detail = parts.length > 0 ? ` (${parts.join(', ')})` : '';
 
-          const cost = result.totalCostCents > 0 ? ` · ${formatCost(result.totalCostCents)}` : '';
+          const tokens =
+            result.totalTokens > 0 ? ` · ${formatTokens(result.totalTokens)} tokens` : '';
 
           console.log(
-            `[${now}] Synced ${synced} session${synced === 1 ? '' : 's'}${detail}${cost} · next sync in ${formatNextSync(intervalSeconds)}`,
+            `[${now}] Synced ${synced} session${synced === 1 ? '' : 's'}${detail}${tokens} · next sync in ${formatNextSync(intervalSeconds)}`,
           );
         }
       } catch (err) {
