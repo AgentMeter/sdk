@@ -1,6 +1,6 @@
 {
   "name": "@agentmeter/cli",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Track local AI coding agent token usage — Claude Code, Cursor, Codex",
   "keywords": [
     "ai",
